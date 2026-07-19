@@ -1,0 +1,125 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap");
+@import "tailwindcss";
+
+/* ===== Дизайн платформи arawebsite ===== */
+
+:root{
+  --ink:#0E2230;
+  --muted:#5C7080;
+  --bg:#F1F5F7;
+  --surface:#FFFFFF;
+  --line:#E2EAEE;
+  --teal:#0FA39B;
+  --teal-ink:#0B8079;
+  --teal-bright:#34D1C4;
+  --cyan-tint:#E6F7F5;
+  --warn-bg:#FFF7E6;
+  --warn-ink:#9A6700;
+  --err-bg:#FFF1E9;
+  --err-ink:#C2410C;
+  --shadow:0 1px 2px rgba(14,34,48,.06), 0 6px 16px rgba(14,34,48,.05);
+  --r:14px;
+}
+
+body{
+  font-family:"Manrope",system-ui,-apple-system,"Segoe UI",sans-serif;
+  background:var(--bg);
+  color:var(--ink);
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+
+.wrap{max-width:920px;margin:0 auto;padding:28px 20px 60px}
+
+/* ---------- Шапка ---------- */
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:24px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:1.1rem}
+.brand__mark{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;color:#fff;font-weight:800;
+  background:linear-gradient(140deg,#0F3D52,var(--teal))}
+.topbar__actions{display:flex;gap:8px;flex-wrap:wrap}
+
+/* ---------- Кнопки ---------- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  font-family:inherit;font-weight:700;font-size:.92rem;
+  padding:11px 18px;border-radius:999px;border:0;cursor:pointer;
+  transition:transform .15s, box-shadow .2s, border-color .2s, background .2s}
+.btn--primary{color:#fff;background:linear-gradient(135deg,var(--teal),var(--teal-ink));
+  box-shadow:0 10px 22px -10px rgba(15,163,155,.65)}
+.btn--primary:hover{transform:translateY(-1px)}
+.btn--ghost{background:var(--surface);color:var(--ink);border:1.5px solid var(--line);box-shadow:var(--shadow)}
+.btn--ghost:hover{border-color:var(--teal);color:var(--teal-ink);transform:translateY(-1px)}
+.btn--danger{background:var(--err-bg);color:var(--err-ink)}
+.btn--danger:hover{transform:translateY(-1px)}
+.btn--sm{padding:8px 13px;font-size:.85rem}
+.btn--icon{width:36px;height:36px;padding:0}
+.btn:disabled{opacity:.45;cursor:default;transform:none!important;box-shadow:none!important}
+.btn:focus-visible{outline:3px solid var(--teal-bright);outline-offset:2px}
+
+/* ---------- Картки ---------- */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  padding:22px;box-shadow:var(--shadow);margin-bottom:14px}
+.card h1{font-size:1.35rem;font-weight:800;margin-bottom:6px}
+.card h2{font-size:1.05rem;font-weight:800;margin-bottom:14px}
+.note{font-size:.9rem;color:var(--muted)}
+.note code{background:var(--cyan-tint);color:var(--teal-ink);padding:2px 6px;border-radius:6px;font-size:.85em}
+
+/* ---------- Логін ---------- */
+.login-box{max-width:420px;margin:10vh auto 0}
+
+/* ---------- Поля ---------- */
+.field{margin-bottom:14px}
+.field label{display:block;font-weight:700;font-size:.83rem;margin-bottom:6px}
+.field label .opt{font-weight:500;color:var(--muted);font-size:.82em}
+.field input,.field select,.field textarea{
+  width:100%;padding:12px 14px;border:1.5px solid var(--line);border-radius:11px;
+  font-family:inherit;font-size:.95rem;color:var(--ink);background:#fff;
+  transition:border-color .2s, box-shadow .2s}
+.field textarea{resize:vertical;min-height:72px;line-height:1.5}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--teal);
+  box-shadow:0 0 0 4px rgba(15,163,155,.12)}
+.field input[type="file"]{padding:10px;font-size:.88rem;cursor:pointer}
+.field input[type="checkbox"]{width:auto;transform:scale(1.3);margin-right:8px;accent-color:var(--teal)}
+.check-row{display:flex;align-items:center;font-weight:600;font-size:.92rem;cursor:pointer}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+@media (max-width:600px){.grid2{grid-template-columns:1fr}}
+
+/* ---------- Вкладки ---------- */
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.tab{padding:10px 18px;border-radius:999px;border:1.5px solid var(--line);background:#fff;
+  font-family:inherit;font-weight:700;font-size:.9rem;color:var(--muted);cursor:pointer;
+  transition:border-color .2s, background .2s, color .2s}
+.tab:hover{border-color:var(--teal)}
+.tab.on{background:var(--cyan-tint);border-color:var(--teal);color:var(--teal-ink)}
+
+/* ---------- Рядки списку ---------- */
+.row{display:flex;align-items:center;gap:13px;padding:12px 0;border-bottom:1px solid var(--line)}
+.row:first-child{padding-top:0}
+.row:last-child{border-bottom:0;padding-bottom:0}
+.row__img{width:52px;height:40px;border-radius:8px;object-fit:cover;background:var(--cyan-tint);flex-shrink:0}
+.row__txt{flex:1;min-width:0}
+.row__txt b{display:block;font-size:.96rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row__txt span{font-size:.82rem;color:var(--muted)}
+.row__actions{display:flex;gap:5px;flex-wrap:wrap}
+
+/* ---------- Сайти (екран власника платформи) ---------- */
+.site-card{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.site-card__txt{flex:1;min-width:180px}
+.site-card__txt b{display:block;font-size:1.05rem}
+.site-card__txt span{font-size:.85rem;color:var(--muted)}
+
+/* ---------- Пігулки статусу ---------- */
+.pill{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;
+  font-size:.78rem;font-weight:700}
+.pill--ok{background:var(--cyan-tint);color:var(--teal-ink)}
+.pill--off{background:var(--err-bg);color:var(--err-ink)}
+
+/* ---------- Банери і статуси ---------- */
+.banner{padding:13px 16px;border-radius:12px;font-weight:600;font-size:.92rem;margin-bottom:14px}
+.banner--warn{background:var(--warn-bg);color:var(--warn-ink)}
+.status{margin-bottom:14px;padding:12px 15px;border-radius:11px;font-weight:600;font-size:.9rem}
+.status--ok{background:var(--cyan-tint);color:var(--teal-ink)}
+.status--err{background:var(--err-bg);color:var(--err-ink)}
+
+/* ---------- Фото в формі ---------- */
+.photo-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.photo-row img{width:110px;height:74px;object-fit:cover;border-radius:9px;border:1px solid var(--line)}
