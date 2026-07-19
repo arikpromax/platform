@@ -194,7 +194,7 @@ export default function AdminApp() {
 
   const openSite = sites.find((s) => s.id === openSiteId) ?? null;
 
-  if (openSite && profile && profile !== "missing") {
+  if (openSite && profile) {
     return (
       <SiteAdmin
         site={openSite}
