@@ -14,10 +14,12 @@ const VIEW = 300; // розмір рамки на екрані, px
 
 export default function ImageCropper({
   file,
+  src,
   onDone,
   onCancel,
 }: {
-  file: File;
+  file?: File; // нове фото з компʼютера
+  src?: string; // або редагуємо вже завантажене (URL)
   onDone: (blob: Blob) => void;
   onCancel: () => void;
 }) {
@@ -26,12 +28,12 @@ export default function ImageCropper({
   const [minScale, setMinScale] = useState(1);
   const [pos, setPos] = useState({ x: 0, y: 0 }); // зсув у px рамки
   const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
-  const url = useRef<string>("");
+  const objUrl = useRef<string>("");
 
-  // Завантажуємо обране фото
+  // Завантажуємо фото (файл або URL готового фото)
   useEffect(() => {
-    url.current = URL.createObjectURL(file);
     const im = new Image();
+    im.crossOrigin = "anonymous"; // щоб можна було перемалювати в canvas
     im.onload = () => {
       setImg(im);
       // базовий масштаб — щоб фото покривало рамку (cover)
@@ -40,9 +42,18 @@ export default function ImageCropper({
       setScale(base);
       setPos({ x: 0, y: 0 });
     };
-    im.src = url.current;
-    return () => URL.revokeObjectURL(url.current);
-  }, [file]);
+    if (file) {
+      objUrl.current = URL.createObjectURL(file);
+      im.src = objUrl.current;
+    } else if (src) {
+      im.src = src;
+    }
+    return () => {
+      if (objUrl.current) URL.revokeObjectURL(objUrl.current);
+    };
+  }, [file, src]);
+
+  const displaySrc = file ? objUrl.current : src || "";
 
   // Розміри фото на екрані при поточному масштабі
   const shown = img ? { w: img.naturalWidth * scale, h: img.naturalHeight * scale } : { w: 0, h: 0 };
@@ -127,7 +138,7 @@ export default function ImageCropper({
           {img && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={url.current}
+              src={displaySrc}
               alt=""
               draggable={false}
               style={{

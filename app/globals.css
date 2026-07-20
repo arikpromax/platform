@@ -122,7 +122,12 @@ body{
 
 /* ---------- Фото в формі ---------- */
 .photo-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.photo-row img{width:110px;height:74px;object-fit:cover;border-radius:9px;border:1px solid var(--line)}
+.photo-thumb{position:relative;padding:0;border:0;background:none;cursor:pointer;line-height:0;
+  border-radius:9px;overflow:hidden;display:block}
+.photo-thumb img{width:110px;height:74px;object-fit:cover;border-radius:9px;border:1px solid var(--line);display:block}
+.photo-thumb__hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:rgba(14,34,48,.55);color:#fff;font-size:.78rem;font-weight:700;opacity:0;transition:opacity .2s}
+.photo-thumb:hover .photo-thumb__hint,.photo-thumb:focus-visible .photo-thumb__hint{opacity:1}
 
 /* ---------- Панель кадрування фото ---------- */
 .cropper-veil{position:fixed;inset:0;z-index:1000;background:rgba(14,34,48,.55);

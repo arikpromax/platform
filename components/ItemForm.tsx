@@ -51,8 +51,9 @@ export default function ItemForm({
 
   const getBool = (f: FieldDef): boolean => Boolean(f.extra ? value.extra[f.key] : false);
 
-  // Файл, який зараз кадруємо (панель обрізки)
+  // Файл, який зараз кадруємо (нове фото), або URL наявного для перекадрування
   const [cropFile, setCropFile] = useState<File | null>(null);
+  const [editSrc, setEditSrc] = useState<string | null>(null);
 
   const set = (f: FieldDef, v: string | boolean) => {
     if (f.type === "image") {
@@ -136,8 +137,17 @@ export default function ItemForm({
                 </label>
                 {url && url.startsWith("http") ? (
                   <div className="photo-row">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={url} alt="" />
+                    {/* Клік по фото — відкрити кадрування наявного фото */}
+                    <button
+                      type="button"
+                      className="photo-thumb"
+                      title="Натисніть, щоб відкадрувати"
+                      onClick={() => setEditSrc(url)}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={url} alt="" />
+                      <span className="photo-thumb__hint">✎ Кадрувати</span>
+                    </button>
                     <label className="btn btn--ghost btn--sm" style={{ cursor: "pointer" }}>
                       Замінити фото
                       <input
@@ -175,12 +185,17 @@ export default function ItemForm({
                 )}
                 {uploading && <p className="note">Завантажую фото…</p>}
 
-                {cropFile && (
+                {(cropFile || editSrc) && (
                   <ImageCropper
-                    file={cropFile}
-                    onCancel={() => setCropFile(null)}
+                    file={cropFile ?? undefined}
+                    src={editSrc ?? undefined}
+                    onCancel={() => {
+                      setCropFile(null);
+                      setEditSrc(null);
+                    }}
                     onDone={(blob) => {
                       setCropFile(null);
+                      setEditSrc(null);
                       onUploadFile(new File([blob], "photo.jpg", { type: "image/jpeg" }));
                     }}
                   />
