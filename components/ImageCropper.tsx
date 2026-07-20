@@ -39,7 +39,8 @@ export default function ImageCropper({
       // базовий масштаб — щоб фото покривало рамку (cover)
       const base = VIEW / Math.min(im.naturalWidth, im.naturalHeight);
       setMinScale(base);
-      setScale(base);
+      // стартуємо трохи наближено, щоб одразу було що перетягувати
+      setScale(base * 1.15);
       setPos({ x: 0, y: 0 });
     };
     if (file) {
@@ -125,7 +126,7 @@ export default function ImageCropper({
       <div className="cropper" onClick={(e) => e.stopPropagation()}>
         <h3>Кадрування фото</h3>
         <p className="note" style={{ marginBottom: 14 }}>
-          Перетягуйте фото і крутіть повзунок, щоб страва гарно стала в рамку.
+          🖐 Тягніть фото, щоб посунути · повзунок ↔ наближає. Щоб рухати більше — наблизьте сильніше.
         </p>
 
         <div
