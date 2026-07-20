@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getSupabase,
   todayISO,
@@ -40,8 +40,16 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
+  const formRef = useRef<HTMLDivElement>(null);
 
   const activeCol = collections.find((c) => c.key === tab) ?? null;
+
+  // Коли відкрили форму редагування — плавно прокрутити до неї
+  useEffect(() => {
+    if (editing && formRef.current) {
+      formRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [editing]);
 
   /* ---------- Завантаження ---------- */
 
@@ -299,13 +307,6 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
                   >
                     Редагувати
                   </button>
-                  <button
-                    className="btn btn--danger btn--sm"
-                    disabled={busy || !canEdit}
-                    onClick={() => remove(item)}
-                  >
-                    Видалити
-                  </button>
                 </div>
               </div>
             ))}
@@ -318,18 +319,21 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
           )}
 
           {editing && activeCol && (
-            <ItemForm
-              heading={editing.id ? `Редагування: ${editing.title}` : "Нова картка"}
-              fields={activeCol.fields}
-              value={editing}
-              options={selOptions}
-              busy={busy}
-              uploading={uploading}
-              onChange={(patch) => setEditing((prev) => (prev ? { ...prev, ...patch } : prev))}
-              onUploadFile={uploadFile}
-              onSubmit={save}
-              onCancel={() => setEditing(null)}
-            />
+            <div ref={formRef}>
+              <ItemForm
+                heading={editing.id ? `Редагування: ${editing.title}` : "Нова картка"}
+                fields={activeCol.fields}
+                value={editing}
+                options={selOptions}
+                busy={busy}
+                uploading={uploading}
+                onChange={(patch) => setEditing((prev) => (prev ? { ...prev, ...patch } : prev))}
+                onUploadFile={uploadFile}
+                onSubmit={save}
+                onCancel={() => setEditing(null)}
+                onDelete={editing.id ? () => remove(editing) : undefined}
+              />
+            </div>
           )}
         </>
       )}

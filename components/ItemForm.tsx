@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import type { FieldDef, Item } from "@/lib/supabase";
+import ImageCropper from "@/components/ImageCropper";
 
 export type Option = { value: string; label: string };
 
@@ -15,6 +17,7 @@ type Props = {
   onUploadFile: (file: File) => void;
   onSubmit: (e: React.FormEvent) => void;
   onCancel: () => void;
+  onDelete?: () => void; // тільки для наявних карток
 };
 
 /**
@@ -32,6 +35,7 @@ export default function ItemForm({
   onUploadFile,
   onSubmit,
   onCancel,
+  onDelete,
 }: Props) {
   const get = (f: FieldDef): string => {
     if (f.type === "image") return value.image_url;
@@ -46,6 +50,9 @@ export default function ItemForm({
   };
 
   const getBool = (f: FieldDef): boolean => Boolean(f.extra ? value.extra[f.key] : false);
+
+  // Файл, який зараз кадруємо (панель обрізки)
+  const [cropFile, setCropFile] = useState<File | null>(null);
 
   const set = (f: FieldDef, v: string | boolean) => {
     if (f.type === "image") {
@@ -131,6 +138,20 @@ export default function ItemForm({
                   <div className="photo-row">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={url} alt="" />
+                    <label className="btn btn--ghost btn--sm" style={{ cursor: "pointer" }}>
+                      Замінити фото
+                      <input
+                        type="file"
+                        accept="image/*"
+                        hidden
+                        disabled={uploading}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) setCropFile(file);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
                     <button
                       type="button"
                       className="btn btn--ghost btn--sm"
@@ -147,12 +168,23 @@ export default function ItemForm({
                     disabled={uploading}
                     onChange={(e) => {
                       const file = e.target.files?.[0];
-                      if (file) onUploadFile(file);
+                      if (file) setCropFile(file);
                       e.target.value = "";
                     }}
                   />
                 )}
                 {uploading && <p className="note">Завантажую фото…</p>}
+
+                {cropFile && (
+                  <ImageCropper
+                    file={cropFile}
+                    onCancel={() => setCropFile(null)}
+                    onDone={(blob) => {
+                      setCropFile(null);
+                      onUploadFile(new File([blob], "photo.jpg", { type: "image/jpeg" }));
+                    }}
+                  />
+                )}
               </div>
             );
           }
@@ -174,6 +206,15 @@ export default function ItemForm({
             Скасувати
           </button>
         </div>
+
+        {onDelete && (
+          // Видалення — окремо внизу, подалі від «Зберегти», щоб не натиснути випадково
+          <div className="form-danger">
+            <button type="button" className="btn btn--danger btn--sm" disabled={busy} onClick={onDelete}>
+              Видалити цю картку
+            </button>
+          </div>
+        )}
       </form>
     </div>
   );
