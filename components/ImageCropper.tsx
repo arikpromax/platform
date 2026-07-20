@@ -47,10 +47,14 @@ export default function ImageCropper({
   // Розміри фото на екрані при поточному масштабі
   const shown = img ? { w: img.naturalWidth * scale, h: img.naturalHeight * scale } : { w: 0, h: 0 };
 
-  // Тримаємо фото так, щоб рамка завжди була закрита (без білих полів)
-  const clamp = (p: { x: number; y: number }) => {
-    const maxX = Math.max(0, (shown.w - VIEW) / 2);
-    const maxY = Math.max(0, (shown.h - VIEW) / 2);
+  // Тримаємо фото так, щоб рамка завжди була закрита (без білих полів).
+  // s — масштаб, для якого рахуємо межі (за замовчуванням поточний).
+  const clampAt = (p: { x: number; y: number }, s: number) => {
+    if (!img) return p;
+    const w = img.naturalWidth * s;
+    const h = img.naturalHeight * s;
+    const maxX = Math.max(0, (w - VIEW) / 2);
+    const maxY = Math.max(0, (h - VIEW) / 2);
     return {
       x: Math.max(-maxX, Math.min(maxX, p.x)),
       y: Math.max(-maxY, Math.min(maxY, p.y)),
@@ -58,14 +62,18 @@ export default function ImageCropper({
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    e.preventDefault();
+    try {
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {}
     drag.current = { x: e.clientX, y: e.clientY, px: pos.x, py: pos.y };
   };
   const onPointerMove = (e: React.PointerEvent) => {
     if (!drag.current) return;
+    e.preventDefault();
     const nx = drag.current.px + (e.clientX - drag.current.x);
     const ny = drag.current.py + (e.clientY - drag.current.y);
-    setPos(clamp({ x: nx, y: ny }));
+    setPos(clampAt({ x: nx, y: ny }, scale));
   };
   const onPointerUp = () => {
     drag.current = null;
@@ -73,7 +81,7 @@ export default function ImageCropper({
 
   const changeZoom = (v: number) => {
     setScale(v);
-    setPos((p) => clamp(p)); // після зуму знову тримаємо в межах
+    setPos((p) => clampAt(p, v)); // межі рахуємо вже для НОВОГО масштабу
   };
 
   const finish = () => {
