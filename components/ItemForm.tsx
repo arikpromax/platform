@@ -91,6 +91,20 @@ export default function ItemForm({
               </div>
             );
 
+          if (f.type === "select")
+            return (
+              <div className="field" key={f.key}>
+                <label htmlFor={id}>{f.name}</label>
+                <select id={id} value={get(f)} onChange={(e) => set(f, e.target.value)}>
+                  {(f.options ?? []).map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            );
+
           if (f.type === "select-collection")
             return (
               <div className="field" key={f.key}>
