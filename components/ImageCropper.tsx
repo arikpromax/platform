@@ -26,6 +26,7 @@ export default function ImageCropper({
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [scale, setScale] = useState(1); // множник до базового «cover»
   const [minScale, setMinScale] = useState(1);
+  const [maxScale, setMaxScale] = useState(4);
   const [pos, setPos] = useState({ x: 0, y: 0 }); // зсув у px рамки
   const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
   const objUrl = useRef<string>("");
@@ -36,11 +37,11 @@ export default function ImageCropper({
     im.crossOrigin = "anonymous"; // щоб можна було перемалювати в canvas
     im.onload = () => {
       setImg(im);
-      // базовий масштаб — щоб фото покривало рамку (cover)
-      const base = VIEW / Math.min(im.naturalWidth, im.naturalHeight);
-      setMinScale(base);
-      // стартуємо трохи наближено, щоб одразу було що перетягувати
-      setScale(base * 1.15);
+      const cover = VIEW / Math.min(im.naturalWidth, im.naturalHeight); // фото заповнює рамку
+      const contain = VIEW / Math.max(im.naturalWidth, im.naturalHeight); // усе фото видно
+      setMinScale(contain * 0.4); // можна сильно віддаляти — фото стає маленьким із полями
+      setMaxScale(cover * 4);
+      setScale(cover * 1.15); // старт: трохи наближено, щоб одразу можна тягнути
       setPos({ x: 0, y: 0 });
     };
     if (file) {
@@ -65,8 +66,10 @@ export default function ImageCropper({
     if (!img) return p;
     const w = img.naturalWidth * s;
     const h = img.naturalHeight * s;
-    const maxX = Math.max(0, (w - VIEW) / 2);
-    const maxY = Math.max(0, (h - VIEW) / 2);
+    // abs: якщо фото БІЛЬШЕ рамки — не даємо зʼявитись білим полям (cover);
+    // якщо МЕНШЕ рамки — тримаємо фото всередині рамки (вільне розміщення з полями).
+    const maxX = Math.abs(w - VIEW) / 2;
+    const maxY = Math.abs(h - VIEW) / 2;
     return {
       x: Math.max(-maxX, Math.min(maxX, p.x)),
       y: Math.max(-maxY, Math.min(maxY, p.y)),
@@ -156,8 +159,8 @@ export default function ImageCropper({
           <input
             type="range"
             min={minScale}
-            max={minScale * 4}
-            step={minScale / 100}
+            max={maxScale}
+            step={(maxScale - minScale) / 200}
             value={scale}
             onChange={(e) => changeZoom(Number(e.target.value))}
           />
