@@ -27,7 +27,9 @@ type Props = {
 export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
   const supabase = getSupabase()!;
 
-  const collections = site.config?.collections ?? [];
+  const allCollections = site.config?.collections ?? [];
+  // Вкладки з позначкою adminOnly бачить лише власник платформи
+  const collections = allCollections.filter((c) => isAdmin || !c.adminOnly);
   const textDefs = site.config?.texts ?? [];
   const paidActive = site.paid_until >= todayISO();
   const canEdit = isAdmin || paidActive;
@@ -312,7 +314,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
             ))}
           </div>
 
-          {!editing && (
+          {!editing && !activeCol?.noAdd && (
             <button className="btn btn--primary" disabled={!canEdit} onClick={() => startEdit(emptyItem())}>
               + Додати
             </button>
@@ -331,7 +333,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
                 onUploadFile={uploadFile}
                 onSubmit={save}
                 onCancel={() => setEditing(null)}
-                onDelete={editing.id ? () => remove(editing) : undefined}
+                onDelete={editing.id && !activeCol?.noDelete ? () => remove(editing) : undefined}
               />
             </div>
           )}

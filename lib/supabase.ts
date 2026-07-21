@@ -12,7 +12,14 @@ export type FieldDef = {
   options?: { value: string; label: string }[]; // для select: готові варіанти
 };
 
-export type CollectionDef = { key: string; name: string; fields: FieldDef[] };
+export type CollectionDef = {
+  key: string;
+  name: string;
+  fields: FieldDef[];
+  adminOnly?: boolean; // вкладку бачить лише власник платформи (роль admin)
+  noAdd?: boolean; // приховати кнопку «+ Додати»
+  noDelete?: boolean; // приховати кнопку «Видалити»
+};
 export type TextDef = { key: string; name: string };
 export type SiteConfig = { collections: CollectionDef[]; texts: TextDef[] };
 
