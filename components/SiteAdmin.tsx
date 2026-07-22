@@ -62,6 +62,12 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
   const [notice, setNotice] = useState<Notice>(null);
   const formRef = useRef<HTMLDivElement>(null);
 
+  // Пошук по всій адмінці + довідка «Як користуватися»
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [searchPool, setSearchPool] = useState<Item[] | null>(null); // кеш усіх карток сайту
+  const pendingRef = useRef<(() => void) | null>(null); // дія після переходу з пошуку
+
   const activeCol = colByKey(tab) ?? null; // класичний режим
   const activeSec: SectionDef | null = useSections ? (sections[secIdx] ?? null) : null;
 
@@ -124,15 +130,31 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
     setEditing(null);
     setEditingCol(null);
     setNotice(null);
+    // якщо сюди перейшли з пошуку — після завантаження виконуємо збережену дію
+    const runPending = () => {
+      const p = pendingRef.current;
+      pendingRef.current = null;
+      if (p) setTimeout(p, 80);
+    };
     if (useSections) {
-      loadSection();
+      loadSection().then(runPending);
       loadTexts();
     } else if (tab === "__texts") {
-      loadTexts();
+      loadTexts().then(runPending);
     } else {
-      loadItems();
+      loadItems().then(runPending);
     }
   }, [tab, secIdx, useSections, site.id, loadItems, loadSection, loadTexts]);
+
+  // Esc закриває довідку
+  useEffect(() => {
+    if (!helpOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setHelpOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [helpOpen]);
 
   const reload = useSections ? loadSection : loadItems;
 
@@ -195,6 +217,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
       setNotice({ kind: "ok", text: "Збережено ✔ На сайті з'явиться протягом хвилини." });
       setEditing(null);
       setEditingCol(null);
+      setSearchPool(null); // кеш пошуку оновиться при наступному пошуку
       await reload();
     }
     setBusy(false);
@@ -209,6 +232,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
     else {
       setEditing(null);
       setEditingCol(null);
+      setSearchPool(null);
       await reload();
     }
     setBusy(false);
@@ -257,8 +281,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
     setBusy(false);
   };
 
-  /* ---------- Рендер-помічники ---------- */
-
+  // Короткий підпис картки у списках і результатах пошуку
   const rowHint = (item: Item): string => {
     const parts: string[] = [];
     if (item.price) parts.push(item.price + " грн");
@@ -267,6 +290,115 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
     if ((item.extra ?? {})["top"]) parts.push("🔥 хіт");
     return parts.join(" · ");
   };
+
+  /* ---------- Пошук ---------- */
+
+  // Підвантажуємо ВСІ картки сайту один раз (кеш скидається після збережень)
+  const ensurePool = async () => {
+    if (searchPool) return;
+    const { data } = await supabase
+      .from("items")
+      .select("*")
+      .eq("site_id", site.id)
+      .order("sort_order");
+    setSearchPool((data ?? []) as Item[]);
+    if (Object.keys(texts).length === 0) loadTexts();
+  };
+
+  type Hit =
+    | { type: "item"; item: Item; secIdx: number; where: string; hint: string }
+    | { type: "text"; key: string; name: string; secIdx: number; where: string; hint: string };
+
+  // У якому розділі живе колекція / фото-слот / текстовий ключ
+  const secOfCollection = (colKey: string, slot?: string): number =>
+    colKey === "site_photos"
+      ? sections.findIndex((s) => (s.photos ?? []).includes(slot ?? ""))
+      : sections.findIndex((s) => (s.collections ?? []).includes(colKey));
+  const secOfText = (key: string): number =>
+    sections.findIndex((s) => (s.texts ?? []).includes(key));
+
+  const needle = q.trim().toLowerCase();
+  const hits: Hit[] = [];
+  if (needle.length >= 2) {
+    for (const it of searchPool ?? []) {
+      const col = colByKey(it.collection);
+      if (!col) continue;
+      const slot = String((it.extra ?? {})["slot"] ?? "");
+      const idx = useSections ? secOfCollection(it.collection, slot) : -1;
+      if (useSections && idx < 0) continue; // колекція прихована з адмінки
+      const hay = [it.title, it.text, it.price, ...Object.values(it.extra ?? {}).map(String)]
+        .join(" ")
+        .toLowerCase();
+      if (!hay.includes(needle)) continue;
+      hits.push({
+        type: "item",
+        item: it,
+        secIdx: idx,
+        where: useSections ? `${idx + 1}. ${sections[idx].name}` : col.name,
+        hint: rowHint(it) || col.name,
+      });
+      if (hits.length >= 15) break;
+    }
+    if (hits.length < 15) {
+      for (const d of textDefs) {
+        const idx = useSections ? secOfText(d.key) : -1;
+        if (useSections && idx < 0) continue;
+        const hay = (d.name + " " + (texts[d.key] ?? "")).toLowerCase();
+        if (!hay.includes(needle)) continue;
+        hits.push({
+          type: "text",
+          key: d.key,
+          name: d.name,
+          secIdx: idx,
+          where: useSections ? `${idx + 1}. ${sections[idx].name}` : "Тексти",
+          hint: texts[d.key] ?? "",
+        });
+        if (hits.length >= 15) break;
+      }
+    }
+  }
+
+  const openHit = (h: Hit) => {
+    setQ("");
+    if (h.type === "item") {
+      const col = colByKey(h.item.collection);
+      if (!col) return;
+      const item = { ...h.item, extra: { ...(h.item.extra ?? {}) } };
+      const go = () => startEdit(col, item);
+      if (useSections) {
+        if (h.secIdx === secIdx) go();
+        else {
+          pendingRef.current = go;
+          setSecIdx(h.secIdx);
+        }
+      } else if (tab === col.key) go();
+      else {
+        pendingRef.current = go;
+        setTab(col.key);
+      }
+    } else {
+      const go = () => {
+        const el = document.getElementById("txt-" + h.key);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          (el as HTMLElement).focus();
+        }
+      };
+      if (useSections) {
+        if (h.secIdx === secIdx) go();
+        else {
+          pendingRef.current = go;
+          setSecIdx(h.secIdx);
+        }
+      } else if (tab === "__texts") go();
+      else {
+        pendingRef.current = go;
+        setTab("__texts");
+      }
+    }
+  };
+
+  /* ---------- Рендер-помічники ---------- */
 
   const renderTextField = (key: string) => {
     const d = textDefByKey(key);
@@ -363,6 +495,9 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
           </span>
         </div>
         <div className="topbar__actions">
+          <button className="btn btn--ghost btn--sm" onClick={() => setHelpOpen(true)}>
+            ❓ Як користуватися
+          </button>
           {onBack && (
             <button className="btn btn--ghost btn--sm" onClick={onBack}>
               ← Сайти
@@ -379,6 +514,49 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
           {isAdmin
             ? "Підписка цього сайту прострочена. Ви бачите й редагуєте його як власник платформи."
             : "Підписка закінчилась — редагування вимкнено. Щоб продовжити, зв'яжіться зі студією arawebsite."}
+        </div>
+      )}
+
+      {/* ---------- Пошук по всій адмінці ---------- */}
+      <div className="search">
+        <input
+          type="search"
+          placeholder="Пошук: назва, ціна, текст… (напр. баня)"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onFocus={ensurePool}
+          aria-label="Пошук по адмінці"
+        />
+        {q && (
+          <button className="search__x" aria-label="Очистити пошук" onClick={() => setQ("")}>
+            ✕
+          </button>
+        )}
+      </div>
+      {needle.length >= 2 && (
+        <div className="card sr">
+          {hits.length === 0 && <p className="sr__none">Нічого не знайдено за «{q}».</p>}
+          {hits.map((h, i) => (
+            <div
+              key={i}
+              className="row"
+              role="button"
+              tabIndex={0}
+              onClick={() => openHit(h)}
+              onKeyDown={(e) => e.key === "Enter" && openHit(h)}
+            >
+              <div className="row__txt">
+                <b>
+                  <span className="sr__where">{h.where}</span>
+                  {h.type === "item" ? h.item.title : h.name}
+                </b>
+                <span>{h.hint}</span>
+              </div>
+              <div className="row__actions">
+                <span className="note">відкрити →</span>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -532,6 +710,45 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
             }}
             onDelete={editing.id && !editingCol.noDelete ? () => remove(editing) : undefined}
           />
+        </div>
+      )}
+
+      {/* ---------- Довідка «Як користуватися» ---------- */}
+      {helpOpen && (
+        <div className="cropper-veil" onClick={(e) => e.target === e.currentTarget && setHelpOpen(false)}>
+          <div className="help" role="dialog" aria-label="Як користуватися адмінкою">
+            <h3>Як користуватися адмінкою</h3>
+            <p className="help__sub">Коротка шпаргалка. Нічого не бійтеся — будь-яку зміну можна так само легко виправити.</p>
+
+            <h4>1. Вкладки зверху — це блоки сайту</h4>
+            <p>Вони йдуть у тому ж порядку, що й на сайті: «1. Головний екран» — самий верх сторінки, далі за списком. Відкрийте вкладку — всередині все, що стосується цього блока: тексти, списки, фото.</p>
+
+            <h4>2. Змінити текст чи ціну</h4>
+            <ul>
+              <li>Тексти: виправте поле в картці «Тексти цього блока» → <span className="kbd">Зберегти тексти</span></li>
+              <li>Картка зі списку (номер, послуга, масаж…): <span className="kbd">Редагувати</span> → поміняйте → <span className="kbd">Зберегти</span></li>
+            </ul>
+
+            <h4>3. Додати, видалити, поміняти місцями</h4>
+            <ul>
+              <li>Додати нову картку: кнопка <span className="kbd">+ Додати</span> під списком</li>
+              <li>Видалити: усередині <span className="kbd">Редагувати</span>, внизу — <span className="kbd">Видалити</span></li>
+              <li>Порядок: стрілочки <span className="kbd">↑</span> <span className="kbd">↓</span> біля картки</li>
+            </ul>
+
+            <h4>4. Фото</h4>
+            <p><span className="kbd">Редагувати</span> біля фото → виберіть файл з телефона чи компʼютера → за потреби посуньте кадр → <span className="kbd">Зберегти</span>.</p>
+
+            <h4>5. Пошук</h4>
+            <p>Введіть у поле зверху будь-яке слово — назву, ціну, текст (напр. «баня» чи «3600») — і клікніть результат: адмінка сама відкриє потрібне місце.</p>
+
+            <h4>6. Коли зміни зʼявляться на сайті?</h4>
+            <p>Протягом хвилини. Відкрийте сайт і оновіть сторінку — усе вже там.</p>
+
+            <button className="btn btn--primary help__close" onClick={() => setHelpOpen(false)}>
+              Зрозуміло
+            </button>
+          </div>
         </div>
       )}
     </div>
