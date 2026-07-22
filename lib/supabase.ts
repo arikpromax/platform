@@ -20,8 +20,17 @@ export type CollectionDef = {
   noAdd?: boolean; // приховати кнопку «+ Додати»
   noDelete?: boolean; // приховати кнопку «Видалити»
 };
-export type TextDef = { key: string; name: string };
-export type SiteConfig = { collections: CollectionDef[]; texts: TextDef[] };
+export type TextDef = { key: string; name: string; multiline?: boolean };
+// Розділ адмінки «як на сайті»: групує тексти, колекції та фото одного блока сайту.
+// Якщо в конфігу є sections — вкладки адмінки будуються за ними (по порядку сайту);
+// якщо нема — стара поведінка (вкладка на кожну колекцію + «Тексти»).
+export type SectionDef = {
+  name: string;
+  texts?: string[]; // ключі текстів цього блока
+  collections?: string[]; // ключі колекцій цього блока
+  photos?: string[]; // слоти фото сайту (extra.slot) цього блока
+};
+export type SiteConfig = { collections: CollectionDef[]; texts: TextDef[]; sections?: SectionDef[] };
 
 export type Site = {
   id: number;

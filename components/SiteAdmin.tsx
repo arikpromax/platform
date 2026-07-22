@@ -5,7 +5,9 @@ import {
   getSupabase,
   todayISO,
   fmtDate,
+  type CollectionDef,
   type Item,
+  type SectionDef,
   type Site,
 } from "@/lib/supabase";
 import ItemForm, { type Option } from "@/components/ItemForm";
@@ -20,7 +22,12 @@ type Props = {
 };
 
 /**
- * Редактор одного сайту: вкладки й форми будуються з site.config.
+ * Редактор одного сайту.
+ * Два режими:
+ *  • «Розділи як на сайті» — якщо в config.sections описано блоки сайту:
+ *    кожна вкладка = один розділ сайту (по порядку), всередині — його тексти,
+ *    його списки та його фото. Власник бачить адмінку так само, як бачить сайт.
+ *  • Класичний — вкладка на кожну колекцію + «Тексти» (для сайтів без sections).
  * Якщо підписка сайту прострочена — власник бачить усе, але редагувати не може
  * (а база ще й сама відхилить запис завдяки RLS).
  */
@@ -31,20 +38,32 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
   // Вкладки з позначкою adminOnly бачить лише власник платформи
   const collections = allCollections.filter((c) => isAdmin || !c.adminOnly);
   const textDefs = site.config?.texts ?? [];
+  const sections: SectionDef[] = site.config?.sections ?? [];
+  const useSections = sections.length > 0;
   const paidActive = site.paid_until >= todayISO();
   const canEdit = isAdmin || paidActive;
 
-  const [tab, setTab] = useState<string>(collections[0]?.key ?? "__texts");
-  const [items, setItems] = useState<Item[]>([]);
+  const colByKey = (key: string): CollectionDef | undefined =>
+    collections.find((c) => c.key === key);
+  const textDefByKey = (key: string) => textDefs.find((d) => d.key === key);
+
+  /* ---------- Стан ---------- */
+
+  const [tab, setTab] = useState<string>(collections[0]?.key ?? "__texts"); // класичний режим
+  const [secIdx, setSecIdx] = useState(0); // режим розділів
+  const [items, setItems] = useState<Item[]>([]); // класичний режим: активна колекція
+  const [itemsByCol, setItemsByCol] = useState<Record<string, Item[]>>({}); // режим розділів
   const [texts, setTexts] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState<Item | null>(null);
+  const [editingCol, setEditingCol] = useState<CollectionDef | null>(null);
   const [selOptions, setSelOptions] = useState<Record<string, Option[]>>({});
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   const formRef = useRef<HTMLDivElement>(null);
 
-  const activeCol = collections.find((c) => c.key === tab) ?? null;
+  const activeCol = colByKey(tab) ?? null; // класичний режим
+  const activeSec: SectionDef | null = useSections ? (sections[secIdx] ?? null) : null;
 
   // Коли відкрили форму редагування — плавно прокрутити до неї
   useEffect(() => {
@@ -55,6 +74,16 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
 
   /* ---------- Завантаження ---------- */
 
+  const loadTexts = useCallback(async () => {
+    const { data } = await supabase.from("texts").select("*").eq("site_id", site.id);
+    const map: Record<string, string> = {};
+    ((data ?? []) as { key: string; value: string }[]).forEach((t) => {
+      map[t.key] = t.value;
+    });
+    setTexts(map);
+  }, [supabase, site.id]);
+
+  // Класичний режим: одна активна колекція
   const loadItems = useCallback(async () => {
     if (!activeCol) return;
     const { data, error } = await supabase
@@ -67,30 +96,53 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
     else setItems((data ?? []) as Item[]);
   }, [supabase, site.id, activeCol]);
 
+  // Режим розділів: всі колекції активного розділу (+ фото сайту, якщо є)
+  const loadSection = useCallback(async () => {
+    if (!activeSec) return;
+    const keys = [...(activeSec.collections ?? [])];
+    if ((activeSec.photos ?? []).length > 0 && !keys.includes("site_photos")) {
+      keys.push("site_photos");
+    }
+    const map: Record<string, Item[]> = {};
+    for (const key of keys) {
+      const { data, error } = await supabase
+        .from("items")
+        .select("*")
+        .eq("site_id", site.id)
+        .eq("collection", key)
+        .order("sort_order");
+      if (error) {
+        setNotice({ kind: "err", text: "Не вдалося завантажити: " + error.message });
+        return;
+      }
+      map[key] = (data ?? []) as Item[];
+    }
+    setItemsByCol(map);
+  }, [supabase, site.id, activeSec]);
+
   useEffect(() => {
     setEditing(null);
+    setEditingCol(null);
     setNotice(null);
-    if (tab === "__texts") {
-      (async () => {
-        const { data } = await supabase.from("texts").select("*").eq("site_id", site.id);
-        const map: Record<string, string> = {};
-        ((data ?? []) as { key: string; value: string }[]).forEach((t) => {
-          map[t.key] = t.value;
-        });
-        setTexts(map);
-      })();
+    if (useSections) {
+      loadSection();
+      loadTexts();
+    } else if (tab === "__texts") {
+      loadTexts();
     } else {
       loadItems();
     }
-  }, [tab, site.id, supabase, loadItems]);
+  }, [tab, secIdx, useSections, site.id, loadItems, loadSection, loadTexts]);
+
+  const reload = useSections ? loadSection : loadItems;
 
   /* ---------- Дії з картками ---------- */
 
-  const startEdit = async (item: Item) => {
+  const startEdit = async (col: CollectionDef, item: Item) => {
     setNotice(null);
     // підвантажуємо варіанти для полів-довідників (наприклад, список категорій)
     const opts: Record<string, Option[]> = {};
-    for (const f of activeCol?.fields ?? []) {
+    for (const f of col.fields) {
       if (f.type === "select-collection" && f.from) {
         const { data } = await supabase
           .from("items")
@@ -105,12 +157,13 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
       }
     }
     setSelOptions(opts);
+    setEditingCol(col);
     setEditing(item);
   };
 
-  const emptyItem = (): Item => ({
+  const emptyItem = (col: CollectionDef): Item => ({
     site_id: site.id,
-    collection: activeCol?.key ?? "",
+    collection: col.key,
     title: "",
     text: "",
     price: "",
@@ -119,9 +172,12 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
     sort_order: 0,
   });
 
+  const listFor = (colKey: string): Item[] =>
+    useSections ? (itemsByCol[colKey] ?? []) : items;
+
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editing) return;
+    if (!editing || !editingCol) return;
     if (!editing.title.trim()) {
       setNotice({ kind: "err", text: "Вкажіть назву." });
       return;
@@ -130,14 +186,16 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
     const row = { ...editing };
     if (!row.id) {
       delete row.id;
-      row.sort_order = items.length ? Math.max(...items.map((i) => i.sort_order)) + 1 : 1;
+      const list = listFor(editingCol.key);
+      row.sort_order = list.length ? Math.max(...list.map((i) => i.sort_order)) + 1 : 1;
     }
     const { error } = await supabase.from("items").upsert(row);
     if (error) setNotice({ kind: "err", text: "Не вдалося зберегти: " + error.message });
     else {
       setNotice({ kind: "ok", text: "Збережено ✔ На сайті з'явиться протягом хвилини." });
       setEditing(null);
-      await loadItems();
+      setEditingCol(null);
+      await reload();
     }
     setBusy(false);
   };
@@ -148,18 +206,23 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
     setBusy(true);
     const { error } = await supabase.from("items").delete().eq("id", item.id);
     if (error) setNotice({ kind: "err", text: "Не вдалося видалити: " + error.message });
-    else await loadItems();
+    else {
+      setEditing(null);
+      setEditingCol(null);
+      await reload();
+    }
     setBusy(false);
   };
 
-  const move = async (index: number, dir: -1 | 1) => {
-    const a = items[index];
-    const b = items[index + dir];
+  // Поміняти місцями сусідні картки списку (list — вже відфільтрований список UI)
+  const move = async (list: Item[], index: number, dir: -1 | 1) => {
+    const a = list[index];
+    const b = list[index + dir];
     if (!a || !b || !a.id || !b.id) return;
     setBusy(true);
     await supabase.from("items").update({ sort_order: b.sort_order }).eq("id", a.id);
     await supabase.from("items").update({ sort_order: a.sort_order }).eq("id", b.id);
-    await loadItems();
+    await reload();
     setBusy(false);
   };
 
@@ -180,21 +243,21 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
 
   /* ---------- Тексти ---------- */
 
-  const saveTexts = async () => {
+  // keys — які саме ключі зберігати (розділ зберігає лише свої тексти)
+  const saveTexts = async (keys?: string[]) => {
     setBusy(true);
     setNotice(null);
-    const rows = textDefs.map((d) => ({
-      site_id: site.id,
-      key: d.key,
-      value: texts[d.key] ?? "",
-    }));
+    const list = keys ?? textDefs.map((d) => d.key);
+    const rows = list
+      .filter((k) => textDefByKey(k))
+      .map((k) => ({ site_id: site.id, key: k, value: texts[k] ?? "" }));
     const { error } = await supabase.from("texts").upsert(rows);
     if (error) setNotice({ kind: "err", text: "Не вдалося зберегти: " + error.message });
-    else setNotice({ kind: "ok", text: "Тексти збережено ✔" });
+    else setNotice({ kind: "ok", text: "Тексти збережено ✔ На сайті з'являться протягом хвилини." });
     setBusy(false);
   };
 
-  /* ---------- Рендер ---------- */
+  /* ---------- Рендер-помічники ---------- */
 
   const rowHint = (item: Item): string => {
     const parts: string[] = [];
@@ -204,6 +267,90 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
     if ((item.extra ?? {})["top"]) parts.push("🔥 хіт");
     return parts.join(" · ");
   };
+
+  const renderTextField = (key: string) => {
+    const d = textDefByKey(key);
+    if (!d) return null;
+    return (
+      <div className="field" key={d.key}>
+        <label htmlFor={`txt-${d.key}`}>{d.name}</label>
+        {d.multiline ? (
+          <textarea
+            id={`txt-${d.key}`}
+            rows={3}
+            value={texts[d.key] ?? ""}
+            onChange={(e) => setTexts((prev) => ({ ...prev, [d.key]: e.target.value }))}
+            disabled={!canEdit}
+          />
+        ) : (
+          <input
+            id={`txt-${d.key}`}
+            type="text"
+            value={texts[d.key] ?? ""}
+            onChange={(e) => setTexts((prev) => ({ ...prev, [d.key]: e.target.value }))}
+            disabled={!canEdit}
+          />
+        )}
+      </div>
+    );
+  };
+
+  // Один список карток (використовується в обох режимах)
+  const renderRows = (col: CollectionDef, list: Item[]) => (
+    <>
+      {list.length === 0 && <p className="note">Тут поки порожньо — додайте першу картку.</p>}
+      {list.map((item, i) => (
+        <div key={item.id} className="row">
+          {item.image_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img className="row__img" src={item.image_url} alt="" />
+          ) : (
+            <div className="row__img" />
+          )}
+          <div className="row__txt">
+            <b>{item.title}</b>
+            <span>{rowHint(item)}</span>
+          </div>
+          <div className="row__actions">
+            <button
+              className="btn btn--ghost btn--sm btn--icon"
+              aria-label="Вище"
+              disabled={busy || !canEdit || i === 0}
+              onClick={() => move(list, i, -1)}
+            >
+              ↑
+            </button>
+            <button
+              className="btn btn--ghost btn--sm btn--icon"
+              aria-label="Нижче"
+              disabled={busy || !canEdit || i === list.length - 1}
+              onClick={() => move(list, i, 1)}
+            >
+              ↓
+            </button>
+            <button
+              className="btn btn--ghost btn--sm"
+              disabled={busy || !canEdit}
+              onClick={() => startEdit(col, { ...item, extra: { ...(item.extra ?? {}) } })}
+            >
+              Редагувати
+            </button>
+          </div>
+        </div>
+      ))}
+      {!editing && !col.noAdd && (
+        <button
+          className="btn btn--primary"
+          disabled={!canEdit}
+          onClick={() => startEdit(col, emptyItem(col))}
+        >
+          + Додати
+        </button>
+      )}
+    </>
+  );
+
+  /* ---------- Рендер ---------- */
 
   return (
     <div className="wrap">
@@ -235,109 +382,157 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
         </div>
       )}
 
+      {/* ---------- Вкладки ---------- */}
       <div className="tabs">
-        {collections.map((c) => (
-          <button key={c.key} className={`tab${tab === c.key ? " on" : ""}`} onClick={() => setTab(c.key)}>
-            {c.name}
-          </button>
-        ))}
-        {textDefs.length > 0 && (
-          <button className={`tab${tab === "__texts" ? " on" : ""}`} onClick={() => setTab("__texts")}>
-            Тексти
-          </button>
-        )}
+        {useSections
+          ? sections.map((s, i) => (
+              <button
+                key={s.name}
+                className={`tab${secIdx === i ? " on" : ""}`}
+                onClick={() => setSecIdx(i)}
+              >
+                {i + 1}. {s.name}
+              </button>
+            ))
+          : (
+            <>
+              {collections.map((c) => (
+                <button
+                  key={c.key}
+                  className={`tab${tab === c.key ? " on" : ""}`}
+                  onClick={() => setTab(c.key)}
+                >
+                  {c.name}
+                </button>
+              ))}
+              {textDefs.length > 0 && (
+                <button
+                  className={`tab${tab === "__texts" ? " on" : ""}`}
+                  onClick={() => setTab("__texts")}
+                >
+                  Тексти
+                </button>
+              )}
+            </>
+          )}
       </div>
 
       {notice && <div className={`status status--${notice.kind}`}>{notice.text}</div>}
 
-      {tab === "__texts" ? (
-        <div className="card">
-          <h2>Тексти сайту</h2>
-          {textDefs.map((d) => (
-            <div className="field" key={d.key}>
-              <label htmlFor={`txt-${d.key}`}>{d.name}</label>
-              <input
-                id={`txt-${d.key}`}
-                type="text"
-                value={texts[d.key] ?? ""}
-                onChange={(e) => setTexts((prev) => ({ ...prev, [d.key]: e.target.value }))}
-                disabled={!canEdit}
-              />
-            </div>
-          ))}
-          <button className="btn btn--primary btn--sm" disabled={busy || !canEdit} onClick={saveTexts}>
-            {busy ? "Зберігаю…" : "Зберегти тексти"}
-          </button>
-        </div>
-      ) : (
+      {/* ---------- Режим «розділи як на сайті» ---------- */}
+      {useSections && activeSec && (
         <>
-          <div className="card">
-            {items.length === 0 && <p className="note">Тут поки порожньо — додайте першу картку.</p>}
-            {items.map((item, i) => (
-              <div key={item.id} className="row">
-                {item.image_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img className="row__img" src={item.image_url} alt="" />
-                ) : (
-                  <div className="row__img" />
-                )}
-                <div className="row__txt">
-                  <b>{item.title}</b>
-                  <span>{rowHint(item)}</span>
-                </div>
-                <div className="row__actions">
-                  <button
-                    className="btn btn--ghost btn--sm btn--icon"
-                    aria-label="Вище"
-                    disabled={busy || !canEdit || i === 0}
-                    onClick={() => move(i, -1)}
-                  >
-                    ↑
-                  </button>
-                  <button
-                    className="btn btn--ghost btn--sm btn--icon"
-                    aria-label="Нижче"
-                    disabled={busy || !canEdit || i === items.length - 1}
-                    onClick={() => move(i, 1)}
-                  >
-                    ↓
-                  </button>
-                  <button
-                    className="btn btn--ghost btn--sm"
-                    disabled={busy || !canEdit}
-                    onClick={() => startEdit({ ...item, extra: { ...(item.extra ?? {}) } })}
-                  >
-                    Редагувати
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {!editing && !activeCol?.noAdd && (
-            <button className="btn btn--primary" disabled={!canEdit} onClick={() => startEdit(emptyItem())}>
-              + Додати
-            </button>
-          )}
-
-          {editing && activeCol && (
-            <div ref={formRef}>
-              <ItemForm
-                heading={editing.id ? `Редагування: ${editing.title}` : "Нова картка"}
-                fields={activeCol.fields}
-                value={editing}
-                options={selOptions}
-                busy={busy}
-                uploading={uploading}
-                onChange={(patch) => setEditing((prev) => (prev ? { ...prev, ...patch } : prev))}
-                onUploadFile={uploadFile}
-                onSubmit={save}
-                onCancel={() => setEditing(null)}
-                onDelete={editing.id && !activeCol?.noDelete ? () => remove(editing) : undefined}
-              />
+          {(activeSec.texts ?? []).length > 0 && (
+            <div className="card">
+              <h2>Тексти цього блока</h2>
+              {(activeSec.texts ?? []).map(renderTextField)}
+              <button
+                className="btn btn--primary btn--sm"
+                disabled={busy || !canEdit}
+                onClick={() => saveTexts(activeSec.texts)}
+              >
+                {busy ? "Зберігаю…" : "Зберегти тексти"}
+              </button>
             </div>
           )}
+
+          {(activeSec.collections ?? []).map((key) => {
+            const col = colByKey(key);
+            if (!col) return null;
+            return (
+              <div className="card" key={key}>
+                <h2>{col.name}</h2>
+                {renderRows(col, itemsByCol[key] ?? [])}
+              </div>
+            );
+          })}
+
+          {(activeSec.photos ?? []).length > 0 && (() => {
+            const photosCol = colByKey("site_photos");
+            if (!photosCol) return null;
+            const slots = activeSec.photos ?? [];
+            const list = (itemsByCol["site_photos"] ?? [])
+              .filter((it) => slots.includes(String((it.extra ?? {})["slot"] ?? "")))
+              .sort(
+                (a, b) =>
+                  slots.indexOf(String((a.extra ?? {})["slot"])) -
+                  slots.indexOf(String((b.extra ?? {})["slot"]))
+              );
+            return (
+              <div className="card">
+                <h2>Фото цього блока</h2>
+                {list.length === 0 && (
+                  <p className="note">Фото-місця цього блока ще не створені в базі.</p>
+                )}
+                {list.map((item) => (
+                  <div key={item.id} className="row">
+                    {item.image_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img className="row__img" src={item.image_url} alt="" />
+                    ) : (
+                      <div className="row__img" />
+                    )}
+                    <div className="row__txt">
+                      <b>{item.title}</b>
+                      <span>{item.image_url ? "фото завантажено" : "фото ще нема"}</span>
+                    </div>
+                    <div className="row__actions">
+                      <button
+                        className="btn btn--ghost btn--sm"
+                        disabled={busy || !canEdit}
+                        onClick={() =>
+                          startEdit(photosCol, { ...item, extra: { ...(item.extra ?? {}) } })
+                        }
+                      >
+                        Редагувати
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </>
+      )}
+
+      {/* ---------- Класичний режим ---------- */}
+      {!useSections &&
+        (tab === "__texts" ? (
+          <div className="card">
+            <h2>Тексти сайту</h2>
+            {textDefs.map((d) => renderTextField(d.key))}
+            <button
+              className="btn btn--primary btn--sm"
+              disabled={busy || !canEdit}
+              onClick={() => saveTexts()}
+            >
+              {busy ? "Зберігаю…" : "Зберегти тексти"}
+            </button>
+          </div>
+        ) : (
+          activeCol && <div className="card">{renderRows(activeCol, items)}</div>
+        ))}
+
+      {/* ---------- Форма редагування (спільна) ---------- */}
+      {editing && editingCol && (
+        <div ref={formRef}>
+          <ItemForm
+            heading={editing.id ? `Редагування: ${editing.title}` : "Нова картка"}
+            fields={editingCol.fields}
+            value={editing}
+            options={selOptions}
+            busy={busy}
+            uploading={uploading}
+            onChange={(patch) => setEditing((prev) => (prev ? { ...prev, ...patch } : prev))}
+            onUploadFile={uploadFile}
+            onSubmit={save}
+            onCancel={() => {
+              setEditing(null);
+              setEditingCol(null);
+            }}
+            onDelete={editing.id && !editingCol.noDelete ? () => remove(editing) : undefined}
+          />
+        </div>
       )}
     </div>
   );
