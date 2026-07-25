@@ -160,6 +160,8 @@ body{
 .sr .row:hover{background:var(--cyan-tint)}
 .sr__where{display:inline-block;font-size:.76rem;color:var(--teal-ink);font-weight:700;margin-right:8px;white-space:nowrap}
 .sr__none{font-size:.9rem;color:var(--muted);padding:4px 2px}
+.sr__count{font-size:.8rem;color:var(--muted);margin-bottom:10px;font-weight:600}
+.sr mark{background:#ffe680;color:inherit;border-radius:4px;padding:0 2px;font-weight:inherit}
 
 /* ---------- Довідка «Як користуватися» ---------- */
 .help{background:#fff;border-radius:16px;padding:26px;box-shadow:0 30px 70px -20px rgba(0,0,0,.5);

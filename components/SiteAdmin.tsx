@@ -14,6 +14,57 @@ import ItemForm, { type Option } from "@/components/ItemForm";
 
 type Notice = { kind: "ok" | "err"; text: string } | null;
 
+/* ---------- Пошук: нормалізація й підсвічування ---------- */
+
+// Зводимо до спільного вигляду: регістр, різні варіанти апострофа, нерозривні пробіли
+const norm = (s: string) =>
+  String(s ?? "")
+    .toLowerCase()
+    .replace(/[’ʼʹ`´']/g, "'")
+    .replace(/[  ]/g, " ");
+
+/**
+ * Знаходить запит у тексті, ІГНОРУЮЧИ пробіли:
+ * «3600» знайде «3 600 грн», «деревяне» знайде «дерев'яне» не зіпсує.
+ * Повертає межі збігу в оригінальному тексті — щоб підсвітити рівно те місце.
+ */
+const findRange = (text: string, needle: string): [number, number] | null => {
+  const t = norm(text);
+  const n = norm(needle).replace(/\s+/g, "");
+  if (!n || !t) return null;
+  for (let i = 0; i < t.length; i++) {
+    if (t[i] === " ") continue; // збіг не починаємо з пробілу
+    let k = 0;
+    let j = i;
+    while (j < t.length && k < n.length) {
+      if (t[j] === " ") {
+        j++;
+        continue;
+      }
+      if (t[j] !== n[k]) break;
+      j++;
+      k++;
+    }
+    if (k === n.length) return [i, j];
+  }
+  return null;
+};
+
+const matches = (text: string, needle: string) => findRange(text, needle) !== null;
+
+// Текст із жовтим виділенням знайденого фрагмента
+function Mark({ text, q }: { text: string; q: string }) {
+  const r = findRange(text, q);
+  if (!r) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, r[0])}
+      <mark>{text.slice(r[0], r[1])}</mark>
+      {text.slice(r[1])}
+    </>
+  );
+}
+
 type Props = {
   site: Site;
   isAdmin: boolean;
@@ -306,8 +357,8 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
   };
 
   type Hit =
-    | { type: "item"; item: Item; secIdx: number; where: string; hint: string }
-    | { type: "text"; key: string; name: string; secIdx: number; where: string; hint: string };
+    | { type: "item"; item: Item; secIdx: number; where: string; title: string; hint: string }
+    | { type: "text"; key: string; secIdx: number; where: string; title: string; hint: string };
 
   // У якому розділі живе колекція / фото-слот / текстовий ключ
   const secOfCollection = (colKey: string, slot?: string): number =>
@@ -317,43 +368,49 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
   const secOfText = (key: string): number =>
     sections.findIndex((s) => (s.texts ?? []).includes(key));
 
-  const needle = q.trim().toLowerCase();
+  const needle = q.trim();
+  const searching = needle.length >= 2;
+  const poolLoading = searching && searchPool === null;
+
   const hits: Hit[] = [];
-  if (needle.length >= 2) {
-    for (const it of searchPool ?? []) {
+  if (searching && searchPool) {
+    for (const it of searchPool) {
       const col = colByKey(it.collection);
       if (!col) continue;
       const slot = String((it.extra ?? {})["slot"] ?? "");
       const idx = useSections ? secOfCollection(it.collection, slot) : -1;
       if (useSections && idx < 0) continue; // колекція прихована з адмінки
-      const hay = [it.title, it.text, it.price, ...Object.values(it.extra ?? {}).map(String)]
-        .join(" ")
-        .toLowerCase();
-      if (!hay.includes(needle)) continue;
+      // окремо: збіг у назві чи в інших полях (щоб показати, де саме знайшли)
+      const others = [it.text, it.price, ...Object.values(it.extra ?? {}).map(String)]
+        .filter((v) => v && String(v).trim());
+      const inTitle = matches(it.title, needle);
+      const other = inTitle ? undefined : others.find((v) => matches(String(v), needle));
+      if (!inTitle && !other) continue;
       hits.push({
         type: "item",
         item: it,
         secIdx: idx,
         where: useSections ? `${idx + 1}. ${sections[idx].name}` : col.name,
-        hint: rowHint(it) || col.name,
+        title: it.title,
+        hint: other ? String(other) : rowHint(it) || col.name,
       });
-      if (hits.length >= 15) break;
+      if (hits.length >= 20) break;
     }
-    if (hits.length < 15) {
+    if (hits.length < 20) {
       for (const d of textDefs) {
         const idx = useSections ? secOfText(d.key) : -1;
         if (useSections && idx < 0) continue;
-        const hay = (d.name + " " + (texts[d.key] ?? "")).toLowerCase();
-        if (!hay.includes(needle)) continue;
+        const value = texts[d.key] ?? "";
+        if (!matches(d.name, needle) && !matches(value, needle)) continue;
         hits.push({
           type: "text",
           key: d.key,
-          name: d.name,
           secIdx: idx,
           where: useSections ? `${idx + 1}. ${sections[idx].name}` : "Тексти",
-          hint: texts[d.key] ?? "",
+          title: d.name,
+          hint: value,
         });
-        if (hits.length >= 15) break;
+        if (hits.length >= 20) break;
       }
     }
   }
@@ -523,7 +580,10 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
           type="search"
           placeholder="Пошук: назва, ціна, текст… (напр. баня)"
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(e) => {
+            setQ(e.target.value);
+            ensurePool();
+          }}
           onFocus={ensurePool}
           aria-label="Пошук по адмінці"
         />
@@ -533,9 +593,18 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
           </button>
         )}
       </div>
-      {needle.length >= 2 && (
+      {searching && (
         <div className="card sr">
-          {hits.length === 0 && <p className="sr__none">Нічого не знайдено за «{q}».</p>}
+          {poolLoading && <p className="sr__none">Шукаю…</p>}
+          {!poolLoading && hits.length === 0 && (
+            <p className="sr__none">Нічого не знайдено за «{needle}».</p>
+          )}
+          {!poolLoading && hits.length > 0 && (
+            <p className="sr__count">
+              Знайдено: {hits.length}
+              {hits.length >= 20 ? "+" : ""} — натисніть, щоб відкрити
+            </p>
+          )}
           {hits.map((h, i) => (
             <div
               key={i}
@@ -548,9 +617,11 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
               <div className="row__txt">
                 <b>
                   <span className="sr__where">{h.where}</span>
-                  {h.type === "item" ? h.item.title : h.name}
+                  <Mark text={h.title} q={needle} />
                 </b>
-                <span>{h.hint}</span>
+                <span>
+                  <Mark text={h.hint} q={needle} />
+                </span>
               </div>
               <div className="row__actions">
                 <span className="note">відкрити →</span>
