@@ -577,7 +577,9 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
       {/* ---------- Пошук по всій адмінці ---------- */}
       <div className="search">
         <input
-          type="search"
+          /* text, а не search: у type="search" браузер малює власний хрестик,
+             і виходило два хрестики поруч */
+          type="text"
           placeholder="Пошук: назва, ціна, текст… (напр. баня)"
           value={q}
           onChange={(e) => {

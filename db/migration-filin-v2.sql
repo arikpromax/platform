@@ -182,52 +182,52 @@ update public.sites set config = '{
 
   "sections": [
     {
-      "name": "1. Головний екран",
+      "name": "Головний екран",
       "texts": ["hero_title_1", "hero_title_2", "hero_sub_strong", "hero_sub",
                 "open_time", "close_time", "phone1", "phone2"],
       "photos": ["hero.jpg"]
     },
     {
-      "name": "2. Про нас",
+      "name": "Про нас",
       "texts": ["about_title_1", "about_title_2", "about_text"],
       "collections": ["about_cards"]
     },
     {
-      "name": "3. Номери",
+      "name": "Номери",
       "texts": ["rooms_title", "rooms_text"],
       "collections": ["rooms", "room_perks"]
     },
     {
-      "name": "4. Сауна",
+      "name": "Сауна",
       "texts": ["sauna_title_1", "sauna_text"],
       "collections": ["sauna_perks"],
       "photos": ["sauna.jpg"]
     },
     {
-      "name": "5. Фото",
+      "name": "Фото",
       "texts": ["photos_title", "photos_text"],
       "collections": ["gallery"]
     },
     {
-      "name": "6. Бронювання",
+      "name": "Бронювання",
       "texts": ["book_title", "book_text", "book_hint"]
     },
     {
-      "name": "7. Банер кафе",
+      "name": "Банер кафе",
       "texts": ["cafe_title_1", "cafe_title_2", "cafe_text"]
     },
     {
-      "name": "8. Контакти",
+      "name": "Контакти",
       "texts": ["contact_title_1", "contact_title_2", "contact_note",
                 "map_link", "ig_link", "footer_text"],
       "collections": ["hours"]
     },
     {
-      "name": "9. Меню кухні",
+      "name": "Меню кухні",
       "collections": ["menu_cats", "menu_items"]
     },
     {
-      "name": "10. Про кухню",
+      "name": "Про кухню",
       "texts": ["note_title", "note_text", "cafe_footer_note"],
       "collections": ["kitchen_facts"]
     }
