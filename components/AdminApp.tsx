@@ -104,6 +104,13 @@ export default function AdminApp() {
     if (!error) loadAll();
   };
 
+  // Виставити дату підписки вручну (календарем)
+  const setPaidUntil = async (site: Site, iso: string) => {
+    if (!supabase || !iso) return;
+    const { error } = await supabase.from("sites").update({ paid_until: iso }).eq("id", site.id);
+    if (!error) loadAll();
+  };
+
   /* ---------- Рендер ---------- */
 
   if (!isSupabaseConfigured || !supabase) {
@@ -235,9 +242,16 @@ export default function AdminApp() {
               <b>{s.name}</b>
               <span>{s.slug}</span>
             </div>
-            <span className={`pill ${active ? "pill--ok" : "pill--off"}`}>
+            <label className={`pill pill--date ${active ? "pill--ok" : "pill--off"}`}>
               {active ? `до ${fmtDate(s.paid_until)}` : "прострочена"}
-            </span>
+              <input
+                type="date"
+                value={s.paid_until}
+                onChange={(e) => setPaidUntil(s, e.target.value)}
+                aria-label={`Підписка ${s.name}: до якої дати`}
+                title="Натисніть, щоб виставити дату вручну"
+              />
+            </label>
             <div className="row__actions">
               <button className="btn btn--ghost btn--sm" onClick={() => extend(s)}>
                 +30 днів
