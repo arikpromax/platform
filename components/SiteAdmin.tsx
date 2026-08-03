@@ -6,6 +6,7 @@ import {
   todayISO,
   fmtDate,
   type CollectionDef,
+  type FieldDef,
   type Item,
   type SectionDef,
   type Site,
@@ -301,7 +302,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
     setBusy(false);
   };
 
-  const uploadFile = async (file: File) => {
+  const uploadFile = async (file: File, field?: FieldDef) => {
     setUploading(true);
     setNotice(null);
     const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
@@ -311,7 +312,13 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
       setNotice({ kind: "err", text: "Не вдалося завантажити фото: " + error.message });
     } else {
       const { data } = supabase.storage.from("site-images").getPublicUrl(path);
-      setEditing((prev) => (prev ? { ...prev, image_url: data.publicUrl } : prev));
+      const url = data.publicUrl;
+      setEditing((prev) => {
+        if (!prev) return prev;
+        // поле-фото може зберігатися в extra — тоді на картці їх кілька
+        if (field?.extra) return { ...prev, extra: { ...prev.extra, [field.key]: url } };
+        return { ...prev, image_url: url };
+      });
     }
     setUploading(false);
   };

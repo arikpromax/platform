@@ -14,7 +14,7 @@ type Props = {
   busy: boolean;
   uploading: boolean;
   onChange: (patch: Partial<Item>) => void;
-  onUploadFile: (file: File) => void;
+  onUploadFile: (file: File, field?: FieldDef) => void;
   onSubmit: (e: React.FormEvent) => void;
   onCancel: () => void;
   onDelete?: () => void; // тільки для наявних карток
@@ -38,7 +38,14 @@ export default function ItemForm({
   onDelete,
 }: Props) {
   const get = (f: FieldDef): string => {
-    if (f.type === "image") return value.image_url;
+    // фото може жити і в extra — тоді на картці їх може бути кілька
+    if (f.type === "image") {
+      if (f.extra) {
+        const v = value.extra[f.key];
+        return v == null ? "" : String(v);
+      }
+      return value.image_url;
+    }
     if (f.extra) {
       const v = value.extra[f.key];
       return v == null ? "" : String(v);
@@ -54,10 +61,13 @@ export default function ItemForm({
   // Файл, який зараз кадруємо (нове фото), або URL наявного для перекадрування
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [editSrc, setEditSrc] = useState<string | null>(null);
+  // для якого саме поля зараз кадруємо — щоб фото лягло куди треба
+  const [cropField, setCropField] = useState<FieldDef | null>(null);
 
   const set = (f: FieldDef, v: string | boolean) => {
     if (f.type === "image") {
-      onChange({ image_url: String(v) });
+      if (f.extra) onChange({ extra: { ...value.extra, [f.key]: v } });
+      else onChange({ image_url: String(v) });
       return;
     }
     if (f.extra) {
@@ -142,7 +152,7 @@ export default function ItemForm({
                       type="button"
                       className="photo-thumb"
                       title="Натисніть, щоб відкадрувати"
-                      onClick={() => setEditSrc(url)}
+                      onClick={() => { setCropField(f); setEditSrc(url); }}
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={url} alt="" />
@@ -157,7 +167,7 @@ export default function ItemForm({
                         disabled={uploading}
                         onChange={(e) => {
                           const file = e.target.files?.[0];
-                          if (file) setCropFile(file);
+                          if (file) { setCropField(f); setCropFile(file); }
                           e.target.value = "";
                         }}
                       />
@@ -178,7 +188,7 @@ export default function ItemForm({
                     disabled={uploading}
                     onChange={(e) => {
                       const file = e.target.files?.[0];
-                      if (file) setCropFile(file);
+                      if (file) { setCropField(f); setCropFile(file); }
                       e.target.value = "";
                     }}
                   />
@@ -192,11 +202,14 @@ export default function ItemForm({
                     onCancel={() => {
                       setCropFile(null);
                       setEditSrc(null);
+                      setCropField(null);
                     }}
                     onDone={(blob) => {
                       setCropFile(null);
                       setEditSrc(null);
-                      onUploadFile(new File([blob], "photo.jpg", { type: "image/jpeg" }));
+                      const target = cropField ?? f;
+                      setCropField(null);
+                      onUploadFile(new File([blob], "photo.jpg", { type: "image/jpeg" }), target);
                     }}
                   />
                 )}
