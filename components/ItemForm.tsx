@@ -138,6 +138,90 @@ export default function ItemForm({
               </div>
             );
 
+          // кілька фото в одному полі: список + кнопка «Додати фото»
+          if (f.type === "images") {
+            const raw = value.extra[f.key];
+            const list: string[] = Array.isArray(raw) ? (raw as string[]).filter(Boolean) : [];
+            const put = (next: string[]) =>
+              onChange({ extra: { ...value.extra, [f.key]: next } });
+            return (
+              <div className="field" key={f.key}>
+                <label>
+                  {f.name} <span className="opt">({list.length} шт.)</span>
+                </label>
+                {list.length > 0 && (
+                  <div className="photos-grid">
+                    {list.map((u, i) => (
+                      <div className="photos-grid__cell" key={u + i}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={u} alt="" />
+                        <div className="photos-grid__bar">
+                          <button
+                            type="button"
+                            title="Раніше"
+                            disabled={i === 0}
+                            onClick={() => {
+                              const n = list.slice();
+                              [n[i - 1], n[i]] = [n[i], n[i - 1]];
+                              put(n);
+                            }}
+                          >
+                            ←
+                          </button>
+                          <button
+                            type="button"
+                            title="Пізніше"
+                            disabled={i === list.length - 1}
+                            onClick={() => {
+                              const n = list.slice();
+                              [n[i + 1], n[i]] = [n[i], n[i + 1]];
+                              put(n);
+                            }}
+                          >
+                            →
+                          </button>
+                          <button
+                            type="button"
+                            title="Прибрати"
+                            onClick={() => put(list.filter((_, k) => k !== i))}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <label className="btn btn--ghost btn--sm" style={{ cursor: "pointer", marginTop: 8 }}>
+                  + Додати фото
+                  <input
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    disabled={uploading}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) { setCropField(f); setCropFile(file); }
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                {uploading && <p className="note">Завантажую фото…</p>}
+                {cropField?.key === f.key && cropFile && (
+                  <ImageCropper
+                    file={cropFile}
+                    onCancel={() => { setCropFile(null); setCropField(null); }}
+                    onDone={(blob) => {
+                      setCropFile(null);
+                      setCropField(null);
+                      onUploadFile(new File([blob], "photo.jpg", { type: "image/jpeg" }), f);
+                    }}
+                  />
+                )}
+              </div>
+            );
+          }
+
           if (f.type === "image") {
             const url = get(f);
             return (

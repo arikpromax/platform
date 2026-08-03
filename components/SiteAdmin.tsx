@@ -315,6 +315,12 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
       const url = data.publicUrl;
       setEditing((prev) => {
         if (!prev) return prev;
+        // поле «кілька фото» — додаємо в кінець списку
+        if (field?.type === "images") {
+          const raw = prev.extra[field.key];
+          const cur = Array.isArray(raw) ? (raw as string[]) : [];
+          return { ...prev, extra: { ...prev.extra, [field.key]: [...cur, url] } };
+        }
         // поле-фото може зберігатися в extra — тоді на картці їх кілька
         if (field?.extra) return { ...prev, extra: { ...prev.extra, [field.key]: url } };
         return { ...prev, image_url: url };

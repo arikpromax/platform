@@ -112,6 +112,16 @@ body{
   font-size:.78rem;font-weight:700}
 .pill--ok{background:var(--cyan-tint);color:var(--teal-ink)}
 .pill--off{background:var(--err-bg);color:var(--err-ink)}
+/* Кілька фото в одному полі */
+.photos-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin-top:6px}
+.photos-grid__cell{position:relative;border:1.5px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+.photos-grid__cell img{display:block;width:100%;aspect-ratio:4/3;object-fit:cover}
+.photos-grid__bar{display:flex;border-top:1px solid var(--line)}
+.photos-grid__bar button{flex:1;border:0;background:#fff;padding:6px 0;cursor:pointer;font-size:.85rem;color:var(--muted)}
+.photos-grid__bar button:hover:not(:disabled){background:var(--cyan-tint);color:var(--teal-ink)}
+.photos-grid__bar button:disabled{opacity:.35;cursor:default}
+.photos-grid__bar button+button{border-left:1px solid var(--line)}
+
 /* Дата підписки — звичайне поле з календарем, видно одразу */
 .paid{display:flex;flex-direction:column;gap:3px}
 .paid__lab{font-size:.68rem;color:var(--muted);letter-spacing:.02em}

@@ -6,7 +6,8 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 export type FieldDef = {
   key: string;
   name: string;
-  type: "text" | "textarea" | "checkbox" | "image" | "select" | "select-collection";
+  // images — кілька фото в одному полі: кнопка «Додати фото», масив у extra
+  type: "text" | "textarea" | "checkbox" | "image" | "images" | "select" | "select-collection";
   extra?: boolean; // true — поле зберігається в items.extra, а не в окремій колонці
   from?: string; // для select-collection: з якої колекції брати варіанти
   options?: { value: string; label: string }[]; // для select: готові варіанти
