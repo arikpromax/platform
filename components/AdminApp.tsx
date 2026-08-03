@@ -242,16 +242,16 @@ export default function AdminApp() {
               <b>{s.name}</b>
               <span>{s.slug}</span>
             </div>
-            <label className={`pill pill--date ${active ? "pill--ok" : "pill--off"}`}>
-              {active ? `до ${fmtDate(s.paid_until)}` : "прострочена"}
+            <div className="paid">
+              <span className="paid__lab">Оплачено до</span>
               <input
+                className={`paid__date ${active ? "is-ok" : "is-off"}`}
                 type="date"
                 value={s.paid_until}
                 onChange={(e) => setPaidUntil(s, e.target.value)}
-                aria-label={`Підписка ${s.name}: до якої дати`}
-                title="Натисніть, щоб виставити дату вручну"
+                aria-label={`Підписка ${s.name}: оплачено до`}
               />
-            </label>
+            </div>
             <div className="row__actions">
               <button className="btn btn--ghost btn--sm" onClick={() => extend(s)}>
                 +30 днів
