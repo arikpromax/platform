@@ -1,0 +1,136 @@
+-- ============================================================
+--  Fuji Sushi (Умань) — підключення до адмінки arawebsite
+--  Згенеровано з fuji/data.js. Запускати у SQL Editor платформи.
+-- ============================================================
+
+insert into public.sites (id, slug, name, paid_until, config) values (
+  5, 'fuji', 'Fuji Sushi (Умань)', current_date + 30,
+  '{"collections":[{"key":"menu","name":"Меню","fields":[{"type":"text","key":"title","name":"Назва"},{"type":"text","key":"price","name":"Звичайна ціна, ₴"},{"type":"text","key":"promo","name":"Акційна ціна, ₴ — порожньо, якщо акції немає","extra":true},{"type":"image","key":"image","name":"Фото страви"},{"type":"select-collection","key":"cat","name":"Розділ меню","from":"cats","extra":true},{"type":"text","key":"w","name":"Вага і кількість (напр. 8 шт · 250 г)","extra":true},{"type":"textarea","key":"d","name":"Опис для клієнта (склад своїми словами)","extra":true},{"type":"checkbox","key":"top","name":"ХІТ — показувати на головній","extra":true},{"type":"checkbox","key":"neu","name":"НОВИНКА","extra":true},{"type":"checkbox","key":"hot","name":"ГОСТРЕ","extra":true},{"type":"checkbox","key":"veg","name":"БЕЗ РИБИ","extra":true},{"type":"checkbox","key":"add","name":"Пропонувати перед оформленням (соуси, напої)","extra":true},{"type":"select","key":"t","name":"Вигляд малюнка (поки немає фото)","options":[{"value":"roll","label":"Рол (зріз)"},{"value":"baked","label":"Запечений"},{"value":"tempura","label":"Темпура"},{"value":"nigiri","label":"Суші / нігірі"},{"value":"shrimp","label":"Креветки"},{"value":"bowl","label":"Вок (миска)"},{"value":"drink","label":"Напій"},{"value":"sauce","label":"Соус"},{"value":"stick","label":"Палички"},{"value":"set","label":"Сет (три роли)"}],"extra":true},{"type":"text","key":"ing","name":"Коди начинки для малюнка, через кому — технічне","extra":true}]},{"key":"sets","name":"Сети","fields":[{"type":"text","key":"title","name":"Назва сета (без слова «Сет»)"},{"type":"text","key":"price","name":"Звичайна ціна, ₴"},{"type":"text","key":"promo","name":"Акційна ціна, ₴ — порожньо, якщо акції немає","extra":true},{"type":"image","key":"image","name":"Фото сета"},{"type":"text","key":"pcs","name":"Скільки шматочків (напр. 48 шт)","extra":true},{"type":"text","key":"w","name":"Вага (напр. 1650 г)","extra":true},{"type":"textarea","key":"list","name":"Склад — кожна позиція з нового рядка","extra":true},{"type":"checkbox","key":"week","name":"СЕТ ТИЖНЯ","extra":true},{"type":"checkbox","key":"top","name":"ХІТ — показувати на головній","extra":true},{"type":"text","key":"ing","name":"Коди начинки для малюнка, через кому — технічне","extra":true}]},{"key":"cats","name":"Розділи меню (нових не додавати)","adminOnly":true,"noAdd":true,"noDelete":true,"fields":[{"key":"title","name":"Назва розділу","type":"text"},{"key":"catkey","name":"Код розділу (не міняти)","type":"text","extra":true}]},{"key":"settings","name":"Режим роботи","noAdd":true,"noDelete":true,"fields":[{"key":"title","name":"Назва картки (не міняти)","type":"text"},{"key":"dayoff","name":"СЬОГОДНІ ВИХІДНИЙ — закрити сайт","type":"checkbox","extra":true},{"key":"msg","name":"Заголовок на екрані вихідного","type":"text","extra":true},{"key":"msg2","name":"Пояснення під заголовком","type":"text","extra":true}]}],"texts":[{"key":"phone_view","name":"Телефон: як показувати"},{"key":"phone","name":"Телефон: цифри для дзвінка"},{"key":"hours","name":"Графік роботи"},{"key":"dayoff_note","name":"Примітка про вихідний день"},{"key":"free_from","name":"Безкоштовна доставка від, ₴"},{"key":"min_order","name":"Мінімальне замовлення, ₴"},{"key":"far_km","name":"Доплата за відстань починається з, км"},{"key":"far_fee","name":"Доплата за кожен км, ₴"},{"key":"pickup_time","name":"Самовиніс: за скільки готуємо"}],"sections":[{"name":"1. Режим роботи","collections":["settings"],"texts":["hours","dayoff_note","phone_view","phone"]},{"name":"2. Меню","collections":["menu","cats"]},{"name":"3. Сети","collections":["sets"]},{"name":"4. Доставка та оплата","texts":["free_from","min_order","far_km","far_fee","pickup_time"]}]}'
+)
+on conflict (id) do update set config = excluded.config, name = excluded.name;
+
+select setval(pg_get_serial_sequence('public.sites', 'id'), (select max(id) from public.sites));
+
+-- Чистимо старий вміст цього сайту (тексти НЕ чіпаємо — власник міг їх правити)
+delete from public.items where site_id = 5 and collection in ('menu','sets','cats','settings');
+
+-- Розділи меню
+insert into public.items (site_id, collection, title, extra, sort_order) values
+  (5, 'cats', 'Сети', '{"catkey":"set"}', 1),
+  (5, 'cats', 'Філадельфія', '{"catkey":"fila"}', 2),
+  (5, 'cats', 'Фірмові', '{"catkey":"sign"}', 3),
+  (5, 'cats', 'Каліфорнія та макі', '{"catkey":"cali"}', 4),
+  (5, 'cats', 'Запечені', '{"catkey":"baked"}', 5),
+  (5, 'cats', 'Темпура', '{"catkey":"temp"}', 6),
+  (5, 'cats', 'Суші', '{"catkey":"sushi"}', 7),
+  (5, 'cats', 'Вок', '{"catkey":"wok"}', 8),
+  (5, 'cats', 'Напої та додатки', '{"catkey":"add"}', 9);
+
+-- Вимикач «Вихідний»
+insert into public.items (site_id, collection, title, extra, sort_order) values
+  (5, 'settings', 'Режим роботи', '{"dayoff":false,"msg":"Сьогодні вихідний","msg2":"Понеділок — санітарний день"}', 1);
+
+-- Меню (68 позицій)
+insert into public.items (site_id, collection, title, price, extra, sort_order) values
+  (5, 'menu', 'Філадельфія з лососем', '279', '{"cat":"fila","w":"8 шт · 250 г","t":"roll","ing":"losos,syr,ohir","top":true}', 1),
+  (5, 'menu', 'Філадельфія з креветкою', '289', '{"cat":"fila","w":"8 шт · 250 г","t":"roll","ing":"krev,syr,ohir"}', 2),
+  (5, 'menu', 'Філадельфія з вугрем', '319', '{"cat":"fila","w":"8 шт · 255 г","t":"roll","ing":"vuhor,syr,ohir"}', 3),
+  (5, 'menu', 'Філадельфія з тунцем', '299', '{"cat":"fila","w":"8 шт · 250 г","t":"roll","ing":"tunec,syr,ohir"}', 4),
+  (5, 'menu', 'Філадельфія з сиром', '249', '{"cat":"fila","w":"8 шт · 240 г","t":"roll","ing":"syr,ohir,avo","veg":true}', 5),
+  (5, 'menu', 'Філадельфія Блек з лососем', '309', '{"cat":"fila","w":"8 шт · 255 г","t":"roll","ing":"losos,syr,black"}', 6),
+  (5, 'menu', 'Філадельфія Блек з тунцем', '319', '{"cat":"fila","w":"8 шт · 255 г","t":"roll","ing":"tunec,syr,black"}', 7),
+  (5, 'menu', 'Філадельфія мега', '389', '{"cat":"fila","w":"10 шт · 340 г","t":"roll","ing":"losos,tunec,krev,syr"}', 8),
+  (5, 'menu', 'Філадельфія мікс', '349', '{"cat":"fila","w":"8 шт · 300 г","t":"roll","ing":"losos,tunec,vuhor,syr"}', 9),
+  (5, 'menu', 'Філадельфія Делюкс', '369', '{"cat":"fila","w":"8 шт · 310 г","t":"roll","ing":"losos,syr,tobik"}', 10),
+  (5, 'menu', 'Філадельфія «Аляска»', '349', '{"cat":"fila","w":"325 г","t":"roll","ing":"losos,syr,avo,krev","d":"лосось зверху, крем-сир, авокадо, креветка варена","top":true,"neu":true}', 11),
+  (5, 'menu', 'Рол «Гурман»', '349', '{"cat":"sign","w":"8 шт · 280 г","t":"roll","ing":"vuhor,syr,tobik,avo","d":"вугор, крем-сир, ікра масаго, авокадо, зверху лосось","top":true}', 12),
+  (5, 'menu', 'Лава рол', '319', '{"cat":"sign","w":"8 шт · 270 г","t":"baked","ing":"losos,syr,perec","top":true}', 13),
+  (5, 'menu', 'Лава рол з тунцем', '329', '{"cat":"sign","w":"8 шт · 270 г","t":"baked","ing":"tunec,syr,perec"}', 14),
+  (5, 'menu', 'Блек чікен чіз', '279', '{"cat":"sign","w":"8 шт · 260 г","t":"roll","ing":"kurka,syr,black"}', 15),
+  (5, 'menu', 'Кранч з крем-сиром', '269', '{"cat":"sign","w":"8 шт · 250 г","t":"tempura","ing":"syr,ohir,avo","veg":true}', 16),
+  (5, 'menu', 'Суші бургер з креветкою', '199', '{"cat":"sign","w":"180 г","t":"nigiri","ing":"krev,syr"}', 17),
+  (5, 'menu', 'Бургер з лососем', '209', '{"cat":"sign","w":"180 г","t":"nigiri","ing":"losos,syr"}', 18),
+  (5, 'menu', 'Суші шаурма з лососем та тунцем', '229', '{"cat":"sign","w":"220 г","t":"nigiri","ing":"losos,tunec,syr"}', 19),
+  (5, 'menu', 'Каліфорнія з лососем', '259', '{"cat":"cali","w":"8 шт · 240 г","t":"roll","ing":"losos,avo,ohir,tobik"}', 20),
+  (5, 'menu', 'Каліфорнія з тунцем', '269', '{"cat":"cali","w":"8 шт · 240 г","t":"roll","ing":"tunec,avo,ohir,tobik"}', 21),
+  (5, 'menu', 'Каліфорнія з креветкою', '279', '{"cat":"cali","w":"8 шт · 245 г","t":"roll","ing":"krev,avo,ohir,tobik"}', 22),
+  (5, 'menu', 'Каліфорнія з крабом', '239', '{"cat":"cali","w":"8 шт · 235 г","t":"roll","ing":"krab,avo,ohir,tobik"}', 23),
+  (5, 'menu', 'Каліфорнія з вугрем', '299', '{"cat":"cali","w":"8 шт · 245 г","t":"roll","ing":"vuhor,avo,ohir,tobik"}', 24),
+  (5, 'menu', 'Каліфорнія з креветкою темпура', '309', '{"cat":"cali","w":"8 шт · 265 г","t":"tempura","ing":"krev,syr,ohir","d":"креветка темпура, огірок, крем-сир, соуси зверху","top":true}', 25),
+  (5, 'menu', 'Футомакі з лососем', '269', '{"cat":"cali","w":"8 шт · 275 г","t":"roll","ing":"losos,syr,avo,omlet"}', 26),
+  (5, 'menu', 'Футомакі з тунцем', '279', '{"cat":"cali","w":"8 шт · 275 г","t":"roll","ing":"tunec,syr,avo,omlet"}', 27),
+  (5, 'menu', 'Футомакі з креветкою', '289', '{"cat":"cali","w":"8 шт · 280 г","t":"roll","ing":"krev,syr,avo,omlet"}', 28),
+  (5, 'menu', 'Дабл макі з креветкою та крем-сиром', '259', '{"cat":"cali","w":"8 шт · 230 г","t":"roll","ing":"krev,syr"}', 29),
+  (5, 'menu', 'Макі з лососем', '139', '{"cat":"cali","w":"6 шт · 130 г","t":"roll","ing":"losos"}', 30),
+  (5, 'menu', 'Макі з тунцем', '145', '{"cat":"cali","w":"6 шт · 130 г","t":"roll","ing":"tunec"}', 31),
+  (5, 'menu', 'Макі з креветкою', '149', '{"cat":"cali","w":"6 шт · 130 г","t":"roll","ing":"krev"}', 32),
+  (5, 'menu', 'Макі з крем-сиром', '99', '{"cat":"cali","w":"6 шт · 120 г","t":"roll","ing":"syr","veg":true}', 33),
+  (5, 'menu', 'Макі з огірком', '89', '{"cat":"cali","w":"6 шт · 120 г","t":"roll","ing":"ohir","veg":true}', 34),
+  (5, 'menu', 'Макі з авокадо', '99', '{"cat":"cali","w":"6 шт · 120 г","t":"roll","ing":"avo","veg":true}', 35),
+  (5, 'menu', 'Запечений з лососем', '239', '{"cat":"baked","w":"8 шт · 250 г","t":"baked","ing":"losos,syr,ohir"}', 36),
+  (5, 'menu', 'Запечений з вугрем', '259', '{"cat":"baked","w":"8 шт · 250 г","t":"baked","ing":"vuhor,syr,ohir"}', 37),
+  (5, 'menu', 'Запечений з куркою', '199', '{"cat":"baked","w":"8 шт · 250 г","t":"baked","ing":"kurka,syr,ohir"}', 38),
+  (5, 'menu', 'Запечений з сиром', '199', '{"cat":"baked","w":"8 шт · 250 г","t":"baked","ing":"syr,ohir,avo","veg":true}', 39),
+  (5, 'menu', 'Запечений з крабом', '219', '{"cat":"baked","w":"8 шт · 250 г","t":"baked","ing":"krab,syr,ohir","top":true}', 40),
+  (5, 'menu', 'Запечений з креветкою', '249', '{"cat":"baked","w":"8 шт · 250 г","t":"baked","ing":"krev,syr,avo"}', 41),
+  (5, 'menu', 'Темпура з креветкою', '259', '{"cat":"temp","w":"8 шт · 265 г","t":"tempura","ing":"krev,syr,avo","top":true}', 42),
+  (5, 'menu', 'Темпура з лососем', '249', '{"cat":"temp","w":"8 шт · 260 г","t":"tempura","ing":"losos,syr,ohir"}', 43),
+  (5, 'menu', 'Темпура з тунцем', '255', '{"cat":"temp","w":"8 шт · 260 г","t":"tempura","ing":"tunec,syr,ohir"}', 44),
+  (5, 'menu', 'Темпура з вугрем', '279', '{"cat":"temp","w":"8 шт · 265 г","t":"tempura","ing":"vuhor,syr,ohir"}', 45),
+  (5, 'menu', 'Темпура з куркою', '219', '{"cat":"temp","w":"8 шт · 260 г","t":"tempura","ing":"kurka,syr,ohir"}', 46),
+  (5, 'menu', 'Темпура з краб-міксом', '239', '{"cat":"temp","w":"8 шт · 260 г","t":"tempura","ing":"krab,syr,ohir"}', 47),
+  (5, 'menu', 'Темпура Гурман', '279', '{"cat":"temp","w":"8 шт · 270 г","t":"tempura","ing":"losos,vuhor,syr"}', 48),
+  (5, 'menu', 'Креветки темпура 6 шт + спайсі', '189', '{"cat":"temp","w":"6 шт · 130 г","t":"shrimp","ing":"krev,perec","hot":true}', 49),
+  (5, 'menu', 'Креветки темпура 10 шт + спайсі', '229', '{"cat":"temp","w":"10 шт · 200 г","t":"shrimp","ing":"krev,perec","hot":true}', 50),
+  (5, 'menu', 'Нігірі з лососем', '95', '{"cat":"sushi","w":"2 шт · 60 г","t":"nigiri","ing":"losos"}', 51),
+  (5, 'menu', 'Нігірі з вугрем', '115', '{"cat":"sushi","w":"2 шт · 60 г","t":"nigiri","ing":"vuhor"}', 52),
+  (5, 'menu', 'Нігірі з тунцем', '105', '{"cat":"sushi","w":"2 шт · 58 г","t":"nigiri","ing":"tunec"}', 53),
+  (5, 'menu', 'Гункан з тобіко', '95', '{"cat":"sushi","w":"2 шт · 60 г","t":"roll","ing":"tobik"}', 54),
+  (5, 'menu', 'Удон з куркою', '189', '{"cat":"wok","w":"380 г","t":"bowl","ing":"kurka,ovoch"}', 55),
+  (5, 'menu', 'Удон з креветкою', '229', '{"cat":"wok","w":"380 г","t":"bowl","ing":"krev,ovoch"}', 56),
+  (5, 'menu', 'Фунчоза з яловичиною', '209', '{"cat":"wok","w":"380 г","t":"bowl","ing":"yalov,ovoch,perec","hot":true}', 57),
+  (5, 'menu', 'Рис з овочами', '159', '{"cat":"wok","w":"350 г","t":"bowl","ing":"ryzh,ovoch,hryby","veg":true}', 58),
+  (5, 'menu', 'Полуничний морс', '69', '{"cat":"add","w":"0,5 л","t":"drink","ing":"perec","top":true}', 59),
+  (5, 'menu', 'Вода без газу', '30', '{"cat":"add","w":"0,5 л","t":"drink","ing":"ohir","add":true}', 60),
+  (5, 'menu', 'Кола', '45', '{"cat":"add","w":"0,5 л","t":"drink","ing":"yalov","add":true}', 61),
+  (5, 'menu', 'Набір: соєвий соус, імбир, васабі', '20', '{"cat":"add","w":"1 набір","t":"drink","ing":"vuhor","d":"один набір до кожного ролу — безкоштовно","add":true}', 62),
+  (5, 'menu', 'Палички', '10', '{"cat":"add","w":"1 пара","t":"stick","ing":"kurka","add":true}', 63),
+  (5, 'menu', 'Палички навчальні', '20', '{"cat":"add","w":"1 пара","t":"stick","ing":"omlet","add":true}', 64),
+  (5, 'menu', 'Соєвий соус', '12', '{"cat":"add","w":"30 г","t":"sauce","ing":"vuhor","add":true}', 65),
+  (5, 'menu', 'Імбир', '15', '{"cat":"add","w":"30 г","t":"sauce","ing":"krev","add":true}', 66),
+  (5, 'menu', 'Васабі', '15', '{"cat":"add","w":"20 г","t":"sauce","ing":"chuka","add":true}', 67),
+  (5, 'menu', 'Соус унагі', '25', '{"cat":"add","w":"40 г","t":"sauce","ing":"vuhor","add":true}', 68);
+
+-- Сети (18)
+insert into public.items (site_id, collection, title, price, extra, sort_order) values
+  (5, 'sets', 'Макі', '429', '{"pcs":"","w":"660 г","list":"Макі з лососем\nМакі з тунцем\nМакі з креветкою\nМакі з огірком\nМакі з крем-сиром\nМакі з авокадо","ing":"losos,tunec,krev,ohir,syr"}', 1),
+  (5, 'sets', 'Запечений рай', '679', '{"pcs":"","w":"1140 г","list":"Запечений з лососем\nЗапечений з вугрем\nЗапечений з куркою\nЗапечений з сиром","ing":"losos,vuhor,kurka,syr"}', 2),
+  (5, 'sets', 'Каліфорнія', '679', '{"pcs":"","w":"970 г","list":"Каліфорнія з тунцем\nКаліфорнія з краб-міксом\nКаліфорнія з креветкою\nКаліфорнія з лососем","ing":"tunec,krab,krev,losos"}', 3),
+  (5, 'sets', 'Фантазія', '689', '{"pcs":"","w":"885 г","list":"Філадельфія мікс\nФутомакі з лососем\nКаліфорнія з креветкою\nСуші з лососем\nСуші з тунцем","ing":"losos,krev,tunec"}', 4),
+  (5, 'sets', 'Хот', '699', '{"pcs":"","w":"1230 г","list":"Темпура з креветкою\nЗапечений з сиром\nТемпура з лососем\nЗапечений з куркою","ing":"krev,syr,losos,kurka"}', 5),
+  (5, 'sets', 'Мега лосось', '769', '{"pcs":"","w":"900 г","list":"Філадельфія з лососем\nФіладельфія Делюкс\nТемпура з лососем\nНігірі з лососем 2 шт","ing":"losos,syr"}', 6),
+  (5, 'sets', 'Лілія', '769', '{"pcs":"","w":"","list":"Філадельфія з лососем\nФіладельфія з тунцем\nТемпура з креветкою\nЗапечений з сиром","ing":"losos,tunec,krev,syr","week":true}', 7),
+  (5, 'sets', 'Філадельфія', '849', '{"pcs":"","w":"1125 г","list":"Філадельфія з тунцем\nФіладельфія мікс\nФіладельфія з креветкою\nФіладельфія з лососем","ing":"tunec,losos,krev"}', 8),
+  (5, 'sets', 'Міксовий', '899', '{"pcs":"","w":"1400 г","list":"Запечений з куркою\nФутомакі з тунцем\nКаліфорнія з крабом\nФіладельфія мікс\nТемпура з креветкою","ing":"kurka,tunec,krab,krev"}', 9),
+  (5, 'sets', 'Хайп', '899', '{"pcs":"","w":"","list":"Філадельфія з лососем 0,5\nФіладельфія з креветкою 0,5\nБлек Філадельфія з лососем\nТемпура з креветкою\nТемпура з краб-міксом\nКреветки темпура 6 шт + спайсі","ing":"losos,krev,krab,black","week":true}', 10),
+  (5, 'sets', 'Титан', '999', '{"pcs":"48 шт","w":"1650 г","list":"Філадельфія з лососем 0,5\nФіладельфія з тунцем 0,5\nФіладельфія Блек з лососем\nФутомакі з креветкою\nЗапечений з сиром\nТемпура з креветкою\nТемпура Гурман","ing":"losos,tunec,krev,black","week":true,"top":true}', 11),
+  (5, 'sets', 'Дари моря', '1149', '{"pcs":"","w":"1580 г","list":"Філадельфія з лососем\nБлек Філадельфія з тунцем\nТемпура з креветкою\nЗапечений з лососем\nЛава рол з тунцем\nДабл макі з креветкою та крем-сиром","ing":"losos,tunec,krev,syr","top":true}', 12),
+  (5, 'sets', 'Преміум', '1199', '{"pcs":"","w":"1560 г","list":"Філадельфія з тунцем\nФіладельфія з лососем 0,5\nФіладельфія з сиром 0,5\nТемпура Гурман\nБургер з лососем\nСуші шаурма з лососем та тунцем\nКреветки темпура 6 шт","ing":"tunec,losos,syr,krev","top":true}', 13),
+  (5, 'sets', 'Темпура мікс', '1219', '{"pcs":"","w":"1660 г","list":"Темпура з креветкою\nТемпура з вугрем\nТемпура з куркою\nТемпура Гурман\nСуші бургер з креветкою\nКреветки темпура 6 шт з соусом спайсі","ing":"krev,vuhor,kurka,losos","top":true}', 14),
+  (5, 'sets', 'Комбо', '1249', '{"pcs":"","w":"1840 г","list":"Філадельфія мега\nФіладельфія з креветкою\nБлек чікен чіз\nТемпура з креветкою\nТемпура з тунцем\nТемпура Гурман","ing":"losos,krev,kurka,tunec","top":true}', 15),
+  (5, 'sets', 'Імператор', '1459', '{"pcs":"","w":"2050 г","list":"Філадельфія мега\nФіладельфія блек з тунцем\nФіладельфія з вугрем\nЗапечений з лососем\nЗапечений з сиром\nТемпура з креветкою\nКранч з крем-сиром","ing":"losos,tunec,vuhor,syr"}', 16),
+  (5, 'sets', 'Друзі', '1569', '{"pcs":"","w":"1895 г","list":"Філадельфія мікс\nФіладельфія з лососем\nМакі з крем-сиром\nФутомакі з тунцем\nЗапечений з куркою\nМакі з лососем\nЗапечений з крабом\nГурман рол\nКаліфорнія з вугрем","ing":"losos,tunec,kurka,krab,vuhor"}', 17),
+  (5, 'sets', 'Гранд', '1599', '{"pcs":"","w":"","list":"Філадельфія з лососем\nФіладельфія з вугрем\nФіладельфія з тунцем\nКаліфорнія з вугрем\nЗапечений з сиром\nЗапечений з краб-мікс\nТемпура з креветкою\nКреветки темпура 10 шт зі спайсі соусом","ing":"losos,vuhor,tunec,krab,krev","week":true}', 18);
+
+-- Тексти (не перезаписуємо, якщо власник уже правив)
+insert into public.texts (site_id, key, value) values
+  (5, 'phone_view', '(098) 000 77 92'),
+  (5, 'phone', '+380980007792'),
+  (5, 'hours', 'вт–нд з 10:00 до 22:00'),
+  (5, 'dayoff_note', 'Понеділок — санітарний день'),
+  (5, 'free_from', '499'),
+  (5, 'min_order', '250'),
+  (5, 'far_km', '10'),
+  (5, 'far_fee', '15'),
+  (5, 'pickup_time', '30–40 хв')
+on conflict (site_id, key) do nothing;
