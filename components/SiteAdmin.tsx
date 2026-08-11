@@ -123,12 +123,24 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
   const activeCol = colByKey(tab) ?? null; // класичний режим
   const activeSec: SectionDef | null = useSections ? (sections[secIdx] ?? null) : null;
 
-  // Коли відкрили форму редагування — плавно прокрутити до неї
+  // Форма — вікно поверх сторінки. Поки воно відкрите, сторінку під ним
+  // не гортаємо, а Esc закриває (окрім моменту збереження чи завантаження фото).
   useEffect(() => {
-    if (editing && formRef.current) {
-      formRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }, [editing]);
+    if (!editing) return;
+    if (formRef.current) formRef.current.scrollTop = 0;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || busy || uploading) return;
+      setEditing(null);
+      setEditingCol(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [editing, busy, uploading]);
 
   /* ---------- Завантаження ---------- */
 
@@ -855,25 +867,36 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
           activeCol && <div className="card">{renderRows(activeCol, items)}</div>
         ))}
 
-      {/* ---------- Форма редагування (спільна) ---------- */}
+      {/* ---------- Форма редагування ----------
+           Вікном поверх списку, а не блоком унизу сторінки:
+           так вона відкривається одразу перед очима, без прокрутки. */}
       {editing && editingCol && (
-        <div ref={formRef}>
-          <ItemForm
-            heading={editing.id ? `Редагування: ${editing.title}` : "Нова картка"}
-            fields={editingCol.fields}
-            value={editing}
-            options={selOptions}
-            busy={busy}
-            uploading={uploading}
-            onChange={(patch) => setEditing((prev) => (prev ? { ...prev, ...patch } : prev))}
-            onUploadFile={uploadFile}
-            onSubmit={save}
-            onCancel={() => {
-              setEditing(null);
-              setEditingCol(null);
-            }}
-            onDelete={editing.id && !editingCol.noDelete ? () => remove(editing) : undefined}
-          />
+        <div
+          className="cropper-veil"
+          onClick={(e) => {
+            if (e.target !== e.currentTarget || busy || uploading) return;
+            setEditing(null);
+            setEditingCol(null);
+          }}
+        >
+          <div className="modal-form" ref={formRef} role="dialog" aria-modal="true">
+            <ItemForm
+              heading={editing.id ? `Редагування: ${editing.title}` : "Нова картка"}
+              fields={editingCol.fields}
+              value={editing}
+              options={selOptions}
+              busy={busy}
+              uploading={uploading}
+              onChange={(patch) => setEditing((prev) => (prev ? { ...prev, ...patch } : prev))}
+              onUploadFile={uploadFile}
+              onSubmit={save}
+              onCancel={() => {
+                setEditing(null);
+                setEditingCol(null);
+              }}
+              onDelete={editing.id && !editingCol.noDelete ? () => remove(editing) : undefined}
+            />
+          </div>
         </div>
       )}
 
@@ -907,6 +930,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
 
             <h4>4. Фото</h4>
             <p><span className="kbd">Редагувати</span> біля фото → виберіть файл з телефона чи компʼютера → за потреби посуньте кадр → <span className="kbd">Зберегти</span>.</p>
+            <p>Форма відкривається вікном поверх списку. Закрити без змін — <span className="kbd">Скасувати</span>, клавіша <span className="kbd">Esc</span> або клік поза вікном.</p>
 
             <h4>5. Пошук</h4>
             <p>Введіть у поле зверху будь-яке слово — назву, ціну, текст (напр. «баня» чи «3600») — і клікніть результат: адмінка сама відкриє потрібне місце.</p>

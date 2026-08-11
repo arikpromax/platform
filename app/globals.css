@@ -165,6 +165,18 @@ body{
   background:rgba(14,34,48,.55);color:#fff;font-size:.78rem;font-weight:700;opacity:0;transition:opacity .2s}
 .photo-thumb:hover .photo-thumb__hint,.photo-thumb:focus-visible .photo-thumb__hint{opacity:1}
 
+/* ---------- Форма картки як вікно поверх списку ----------
+   Відкривається одразу перед очима, без прокрутки сторінки вниз. */
+.modal-form{width:min(100%,620px);max-height:calc(100dvh - 40px);overflow-y:auto;
+  -webkit-overflow-scrolling:touch;overscroll-behavior:contain;border-radius:16px;
+  box-shadow:0 30px 70px -20px rgba(0,0,0,.5);animation:modalIn .18s ease-out}
+.modal-form > .card{margin:0;border-radius:16px}
+@keyframes modalIn{from{opacity:0;transform:translateY(10px) scale(.99)}to{opacity:1;transform:none}}
+@media(max-width:560px){
+  .modal-form{max-height:calc(100dvh - 16px)}
+  .cropper-veil{padding:8px}
+}
+
 /* ---------- Панель кадрування фото ---------- */
 .cropper-veil{position:fixed;inset:0;z-index:1000;background:rgba(14,34,48,.55);
   display:flex;align-items:center;justify-content:center;padding:20px}
