@@ -85,6 +85,8 @@ export default function ItemForm({
       <form onSubmit={onSubmit}>
         {fields.map((f) => {
           const id = `fld-${f.key}`;
+          // сірий рядок-пояснення під полем (config → FieldDef.hint)
+          const hint = f.hint ? <p className="fhint">{f.hint}</p> : null;
 
           if (f.type === "checkbox")
             return (
@@ -98,6 +100,7 @@ export default function ItemForm({
                   />
                   {f.name}
                 </label>
+                {hint}
               </div>
             );
 
@@ -106,6 +109,7 @@ export default function ItemForm({
               <div className="field" key={f.key}>
                 <label htmlFor={id}>{f.name}</label>
                 <textarea id={id} rows={2} value={get(f)} onChange={(e) => set(f, e.target.value)} />
+                {hint}
               </div>
             );
 
@@ -120,6 +124,7 @@ export default function ItemForm({
                     </option>
                   ))}
                 </select>
+                {hint}
               </div>
             );
 
@@ -135,6 +140,7 @@ export default function ItemForm({
                     </option>
                   ))}
                 </select>
+                {hint}
               </div>
             );
 
@@ -206,6 +212,7 @@ export default function ItemForm({
                     }}
                   />
                 </label>
+                {hint}
                 {uploading && <p className="note">Завантажую фото…</p>}
                 {cropField?.key === f.key && cropFile && (
                   <ImageCropper
@@ -277,6 +284,7 @@ export default function ItemForm({
                     }}
                   />
                 )}
+                {hint}
                 {uploading && <p className="note">Завантажую фото…</p>}
 
                 {(cropFile || editSrc) && (
@@ -306,6 +314,7 @@ export default function ItemForm({
             <div className="field" key={f.key}>
               <label htmlFor={id}>{f.name}</label>
               <input id={id} type="text" value={get(f)} onChange={(e) => set(f, e.target.value)} />
+              {hint}
             </div>
           );
         })}

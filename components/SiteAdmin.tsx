@@ -686,6 +686,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
       {/* ---------- Режим «розділи як на сайті» ---------- */}
       {useSections && activeSec && (
         <>
+          {activeSec.note && <p className="snote">{activeSec.note}</p>}
           {(activeSec.texts ?? []).length > 0 && (
             <div className="card">
               <h2>Тексти цього блока</h2>

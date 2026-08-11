@@ -70,6 +70,12 @@ body{
 .field{margin-bottom:14px}
 .field label{display:block;font-weight:700;font-size:.83rem;margin-bottom:6px}
 .field label .opt{font-weight:500;color:var(--muted);font-size:.82em}
+/* сірий рядок-пояснення під полем (FieldDef.hint) */
+.fhint{margin:5px 0 0;color:var(--muted);font-size:.84em;line-height:1.45}
+/* пояснення вгорі вкладки-розділу (SectionDef.note) */
+.snote{margin:0 0 14px;padding:11px 14px;border-radius:10px;
+  background:rgba(120,140,170,.10);border:1px solid rgba(120,140,170,.22);
+  color:var(--muted);font-size:.9em;line-height:1.5}
 .field input,.field select,.field textarea{
   width:100%;padding:12px 14px;border:1.5px solid var(--line);border-radius:11px;
   font-family:inherit;font-size:.95rem;color:var(--ink);background:#fff;

@@ -11,6 +11,7 @@ export type FieldDef = {
   extra?: boolean; // true — поле зберігається в items.extra, а не в окремій колонці
   from?: string; // для select-collection: з якої колекції брати варіанти
   options?: { value: string; label: string }[]; // для select: готові варіанти
+  hint?: string; // сірий рядок під полем: приклад або пояснення для власника
 };
 
 export type CollectionDef = {
@@ -27,6 +28,7 @@ export type TextDef = { key: string; name: string; multiline?: boolean };
 // якщо нема — стара поведінка (вкладка на кожну колекцію + «Тексти»).
 export type SectionDef = {
   name: string;
+  note?: string; // пояснення вгорі вкладки: що це за блок і де він на сайті
   texts?: string[]; // ключі текстів цього блока
   collections?: string[]; // ключі колекцій цього блока
   photos?: string[]; // слоти фото сайту (extra.slot) цього блока
