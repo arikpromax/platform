@@ -290,16 +290,40 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
     setBusy(false);
   };
 
-  // Поміняти місцями сусідні картки списку (list — вже відфільтрований список UI)
-  const move = async (list: Item[], index: number, dir: -1 | 1) => {
-    const a = list[index];
-    const b = list[index + dir];
-    if (!a || !b || !a.id || !b.id) return;
+  /* ---------- Порядок карток ----------
+     Перетягуванням (мишею) або «взяти → вставити сюди» (пальцем).
+     Переставляємо весь список і перенумеровуємо позиції одним запитом:
+     надійніше за обмін сусідів і заразом лікує зіпсовану нумерацію. */
+  const [picked, setPicked] = useState<number | null>(null); // id взятої картки
+  const [overId, setOverId] = useState<number | null>(null); // над якою зараз тягнемо
+
+  const reorder = async (list: Item[], from: number, to: number) => {
+    if (from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) return;
+    const next = list.slice();
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+
+    const updates = next
+      .map((row, i) => ({ row, pos: i + 1 }))
+      .filter(({ row, pos }) => row.sort_order !== pos)
+      .map(({ row, pos }) => ({ ...row, sort_order: pos }));
+    if (!updates.length) return;
+
     setBusy(true);
-    await supabase.from("items").update({ sort_order: b.sort_order }).eq("id", a.id);
-    await supabase.from("items").update({ sort_order: a.sort_order }).eq("id", b.id);
+    const { error } = await supabase.from("items").upsert(updates);
+    if (error) setNotice({ kind: "err", text: "Не вдалося змінити порядок: " + error.message });
     await reload();
     setBusy(false);
+  };
+
+  const move = (list: Item[], index: number, dir: -1 | 1) => reorder(list, index, index + dir);
+
+  // Тап по картці, коли одну вже «взято»: вставити взяту на це місце
+  const dropOn = (list: Item[], toIdx: number) => {
+    if (picked == null) return;
+    const from = list.findIndex((r) => r.id === picked);
+    setPicked(null);
+    if (from >= 0) reorder(list, from, toIdx);
   };
 
   const uploadFile = async (file: File, field?: FieldDef) => {
@@ -501,8 +525,42 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
   const renderRows = (col: CollectionDef, list: Item[]) => (
     <>
       {list.length === 0 && <p className="note">Тут поки порожньо — додайте першу картку.</p>}
+      {picked != null && (
+        <p className="note note--pick">
+          Картку взято. Натисніть «Вставити сюди» там, де вона має стояти.{" "}
+          <button className="btn btn--ghost btn--sm" onClick={() => setPicked(null)}>
+            Скасувати
+          </button>
+        </p>
+      )}
       {list.map((item, i) => (
-        <div key={item.id} className="row">
+        <div
+          key={item.id}
+          className={
+            "row" +
+            (picked === item.id ? " row--picked" : "") +
+            (overId === item.id ? " row--over" : "")
+          }
+          draggable={canEdit && !busy && picked == null}
+          onDragStart={(e) => {
+            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.setData("text/plain", String(item.id));
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            if (overId !== item.id) setOverId(item.id ?? null);
+          }}
+          onDragLeave={() => setOverId((v) => (v === item.id ? null : v))}
+          onDrop={(e) => {
+            e.preventDefault();
+            setOverId(null);
+            const id = Number(e.dataTransfer.getData("text/plain"));
+            const from = list.findIndex((r) => r.id === id);
+            if (from >= 0) reorder(list, from, i);
+          }}
+          onDragEnd={() => setOverId(null)}
+        >
           {item.image_url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img className="row__img" src={item.image_url} alt="" />
@@ -514,6 +572,25 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
             <span>{rowHint(item)}</span>
           </div>
           <div className="row__actions">
+            {picked != null && picked !== item.id ? (
+              <button
+                className="btn btn--primary btn--sm"
+                disabled={busy || !canEdit}
+                onClick={() => dropOn(list, i)}
+              >
+                Вставити сюди
+              </button>
+            ) : (
+              <button
+                className="btn btn--ghost btn--sm btn--icon"
+                title="Взяти картку, щоб перенести"
+                aria-label="Перенести"
+                disabled={busy || !canEdit || list.length < 2}
+                onClick={() => setPicked(picked === item.id ? null : (item.id ?? null))}
+              >
+                ⇅
+              </button>
+            )}
             <button
               className="btn btn--ghost btn--sm btn--icon"
               aria-label="Вище"
@@ -820,7 +897,12 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
             <ul>
               <li>Додати нову картку: кнопка <span className="kbd">+ Додати</span> під списком</li>
               <li>Видалити: усередині <span className="kbd">Редагувати</span>, внизу — <span className="kbd">Видалити</span></li>
-              <li>Порядок: стрілочки <span className="kbd">↑</span> <span className="kbd">↓</span> біля картки</li>
+              <li>
+                Порядок: перетягніть картку мишею на потрібне місце. З телефона —
+                натисніть <span className="kbd">⇅</span> на картці, потім{" "}
+                <span className="kbd">Вставити сюди</span> там, де вона має стояти.
+                Стрілочки <span className="kbd">↑</span> <span className="kbd">↓</span> зсувають на одну позицію.
+              </li>
             </ul>
 
             <h4>4. Фото</h4>
