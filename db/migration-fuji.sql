@@ -39,6 +39,10 @@ select v.* from (values
 ) as v(site_id, collection, title, extra, sort_order)
 where not exists (select 1 from public.items where site_id = 5 and collection = 'settings');
 
+update public.items set extra =
+  '{"open_from":"10:00","open_to":"22:00"}'::jsonb || extra
+where site_id = 5 and collection = 'settings';
+
 -- Меню (68 позицій)
 insert into public.items (site_id, collection, title, price, extra, sort_order)
 select v.* from (values
