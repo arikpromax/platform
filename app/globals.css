@@ -79,6 +79,18 @@ body{
   background:rgba(106,169,255,.10);border:1px solid rgba(106,169,255,.30);
   border-radius:10px;padding:9px 12px}
 
+/* вкладка-вибиралка: галочка «показувати» просто в рядку списку */
+.pick__box{display:flex;align-items:center;gap:8px;flex-shrink:0;cursor:pointer;
+  padding:8px 12px;border-radius:10px;background:rgba(120,140,170,.10);
+  font-size:.88rem;font-weight:600;white-space:nowrap}
+.pick__box:hover{background:rgba(120,140,170,.18)}
+.pick__box input{width:18px;height:18px;cursor:pointer}
+.pick__text{width:100%;margin-top:6px;padding:7px 10px;font-size:.88rem}
+@media(max-width:560px){
+  .pick__box{padding:8px 10px}
+  .pick__box span{display:none}
+}
+
 /* сірий рядок-пояснення під полем (FieldDef.hint) */
 .fhint{margin:5px 0 0;color:var(--muted);font-size:.84em;line-height:1.45}
 /* пояснення вгорі вкладки-розділу (SectionDef.note) */

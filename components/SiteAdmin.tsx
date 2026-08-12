@@ -170,6 +170,8 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
   const loadSection = useCallback(async () => {
     if (!activeSec) return;
     const keys = [...(activeSec.collections ?? [])];
+    // вкладка-вибиралка показує картки чужих колекцій — їх теж треба завантажити
+    for (const k of activeSec.picker?.from ?? []) if (!keys.includes(k)) keys.push(k);
     if ((activeSec.photos ?? []).length > 0 && !keys.includes("site_photos")) {
       keys.push("site_photos");
     }
@@ -533,6 +535,86 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
     );
   };
 
+  /* ---------- Вкладка-вибиралка ----------
+     Список страв і сетів з галочкою: що позначили — те й потрапляє
+     в блок сайту. Позначене піднімаємо вгору, щоб було видно вибір. */
+  const togglePick = async (item: Item, flag: string, on: boolean) => {
+    setBusy(true);
+    const extra = { ...(item.extra ?? {}) };
+    if (on) extra[flag] = true;
+    else delete extra[flag];
+    const { error } = await supabase.from("items").update({ extra }).eq("id", item.id!);
+    if (error) setNotice({ kind: "err", text: "Не вдалося зберегти: " + error.message });
+    await reload();
+    setBusy(false);
+  };
+
+  const savePickText = async (item: Item, key: string, value: string) => {
+    const extra = { ...(item.extra ?? {}), [key]: value };
+    const { error } = await supabase.from("items").update({ extra }).eq("id", item.id!);
+    if (error) setNotice({ kind: "err", text: "Не вдалося зберегти: " + error.message });
+    else setNotice({ kind: "ok", text: "Збережено" });
+    await reload();
+  };
+
+  const renderPicker = (p: NonNullable<SectionDef["picker"]>) => {
+    const all = p.from.flatMap((k) => itemsByCol[k] ?? []);
+    const on = all.filter((i) => Boolean((i.extra ?? {})[p.flag]));
+    const off = all.filter((i) => !(i.extra ?? {})[p.flag]);
+
+    const row = (item: Item, checked: boolean) => (
+      <div key={item.id} className={"row" + (checked ? " row--picked" : "")}>
+        {item.image_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img className="row__img" src={item.image_url} alt="" />
+        ) : (
+          <div className="row__img" />
+        )}
+        <div className="row__txt">
+          <b>{item.title}</b>
+          <span>{item.price ? item.price + " грн" : rowHint(item)}</span>
+          {checked && p.textKey && (
+            <input
+              className="pick__text"
+              defaultValue={String((item.extra ?? {})[p.textKey] ?? "")}
+              placeholder={p.textLabel ?? ""}
+              disabled={!canEdit}
+              onBlur={(e) => {
+                const v = e.target.value;
+                if (v !== String((item.extra ?? {})[p.textKey!] ?? "")) {
+                  savePickText(item, p.textKey!, v);
+                }
+              }}
+            />
+          )}
+        </div>
+        <label className="pick__box">
+          <input
+            type="checkbox"
+            checked={checked}
+            disabled={busy || !canEdit}
+            onChange={(e) => togglePick(item, p.flag, e.target.checked)}
+          />
+          {p.label}
+        </label>
+      </div>
+    );
+
+    return (
+      <>
+        <div className="card">
+          <h2>Зараз показуються ({on.length})</h2>
+          {on.length === 0 && <p className="note">{p.empty ?? "Поки нічого не позначено."}</p>}
+          {on.map((i) => row(i, true))}
+        </div>
+        <div className="card">
+          <h2>Решта позицій</h2>
+          {off.map((i) => row(i, false))}
+        </div>
+      </>
+    );
+  };
+
   // Один список карток (використовується в обох режимах)
   const renderRows = (col: CollectionDef, list: Item[]) => (
     <>
@@ -776,6 +858,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
       {useSections && activeSec && (
         <>
           {activeSec.note && <p className="snote">{activeSec.note}</p>}
+          {activeSec.picker && renderPicker(activeSec.picker)}
           {(activeSec.texts ?? []).length > 0 && (
             <div className="card">
               <h2>Тексти цього блока</h2>
@@ -928,7 +1011,10 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
               </li>
             </ul>
 
-            <h4>4. Фото</h4>
+            <h4>4. Банери на головній</h4>
+            <p>Окрема вкладка зі списком страв і сетів. Поставте галочку <span className="kbd">У банері</span> — і позиція покажеться великою карткою вгорі головної. Назву, фото, ціну й акцію банер бере з самої позиції.</p>
+
+            <h4>5. Фото</h4>
             <p><span className="kbd">Редагувати</span> біля фото → виберіть файл з телефона чи компʼютера → за потреби посуньте кадр → <span className="kbd">Зберегти</span>.</p>
             <p>Форма відкривається вікном поверх списку. Закрити без змін — <span className="kbd">Скасувати</span>, клавіша <span className="kbd">Esc</span> або клік поза вікном.</p>
 
