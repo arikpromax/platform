@@ -328,14 +328,12 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
     setBusy(false);
   };
 
-  const move = (list: Item[], index: number, dir: -1 | 1) => reorder(list, index, index + dir);
-
   // Тап по картці, коли одну вже «взято»: вставити взяту на це місце
-  const dropOn = (list: Item[], toIdx: number) => {
+  const dropOn = (list: Item[], all: Item[], toIdx: number) => {
     if (picked == null) return;
     const from = list.findIndex((r) => r.id === picked);
     setPicked(null);
-    if (from >= 0) reorder(list, from, toIdx);
+    if (from >= 0) reorderIn(list, all, from, toIdx);
   };
 
   const uploadFile = async (file: File, field?: FieldDef) => {
@@ -382,13 +380,42 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
   };
 
   // Короткий підпис картки у списках і результатах пошуку
-  const rowHint = (item: Item): string => {
+  const rowHint = (item: Item, col?: CollectionDef): string => {
     const parts: string[] = [];
     if (item.price) parts.push(item.price + " грн");
     const cat = (item.extra ?? {})["cat"];
-    if (cat) parts.push(String(cat));
+    if (cat) {
+      // показуємо назву розділу, а не його код: «Філадельфія», не «fila»
+      const f = col?.fields.find((x) => x.key === "cat");
+      const o = f?.options?.find((x) => x.value === String(cat));
+      parts.push(o ? o.label : String(cat));
+    }
     if ((item.extra ?? {})["top"]) parts.push("🔥 хіт");
     return parts.join(" · ");
+  };
+
+  /* ---------- Поділ списку на розділи (col.groupBy) ---------- */
+
+  // обраний розділ для кожної колекції; порожньо — показуємо все
+  const [group, setGroup] = useState<Record<string, string>>({});
+
+  // поле, за яким ділимо, і його значення в картці
+  const groupField = (col: CollectionDef) =>
+    col.groupBy ? col.fields.find((f) => f.key === col.groupBy) : undefined;
+
+  const groupValue = (item: Item, f: FieldDef) =>
+    String((f.extra ? (item.extra ?? {})[f.key] : (item as unknown as Record<string, unknown>)[f.key]) ?? "");
+
+  // Порядок карток спільний для всієї колекції, тому переставляємо завжди
+  // у повному списку: інакше нумерація одного розділу перетерла б інші.
+  const reorderIn = (view: Item[], all: Item[], from: number, to: number) => {
+    if (view === all) return reorder(all, from, to);
+    const fromId = view[from]?.id;
+    const toId = view[to]?.id;
+    const f = all.findIndex((r) => r.id === fromId);
+    const t = all.findIndex((r) => r.id === toId);
+    if (f < 0 || t < 0) return;
+    return reorder(all, f, t);
   };
 
   /* ---------- Пошук ---------- */
@@ -546,9 +573,56 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
   };
 
   // Один список карток (використовується в обох режимах)
-  const renderRows = (col: CollectionDef, list: Item[]) => (
+  const renderRows = (col: CollectionDef, all: Item[]) => {
+    const gf = groupField(col);
+    const gOpts = gf?.options ?? [];
+    const gVal = group[col.key] ?? "";
+    const list = gf && gVal ? all.filter((it) => groupValue(it, gf) === gVal) : all;
+    const gName = gOpts.find((o) => o.value === gVal)?.label ?? "";
+
+    // нова картка одразу потрапляє в обраний розділ
+    const newItem = () => {
+      const it = emptyItem(col);
+      if (gf && gVal) {
+        if (gf.extra) it.extra = { ...it.extra, [gf.key]: gVal };
+        else (it as unknown as Record<string, unknown>)[gf.key] = gVal;
+      }
+      return it;
+    };
+
+    return (
     <>
-      {list.length === 0 && <p className="note">Тут поки порожньо — додайте першу картку.</p>}
+      {gf && gOpts.length > 0 && (
+        <div className="groups">
+          <span className="groups__l">Оберіть розділ:</span>
+          <div className="groups__row">
+            <button
+              className={"chip" + (gVal === "" ? " chip--on" : "")}
+              onClick={() => setGroup((g) => ({ ...g, [col.key]: "" }))}
+            >
+              Усі <i>{all.length}</i>
+            </button>
+            {gOpts.map((o) => {
+              const n = all.filter((it) => groupValue(it, gf) === o.value).length;
+              return (
+                <button
+                  key={o.value}
+                  className={"chip" + (gVal === o.value ? " chip--on" : "")}
+                  onClick={() => setGroup((g) => ({ ...g, [col.key]: o.value }))}
+                >
+                  {o.label} <i>{n}</i>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {list.length === 0 && (
+        <p className="note">
+          {gVal ? `У розділі «${gName}» поки порожньо — додайте першу картку.` : "Тут поки порожньо — додайте першу картку."}
+        </p>
+      )}
       {picked != null && (
         <p className="note note--pick">
           Картку взято. Натисніть «Вставити сюди» там, де вона має стояти.{" "}
@@ -581,7 +655,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
             setOverId(null);
             const id = Number(e.dataTransfer.getData("text/plain"));
             const from = list.findIndex((r) => r.id === id);
-            if (from >= 0) reorder(list, from, i);
+            if (from >= 0) reorderIn(list, all, from, i);
           }}
           onDragEnd={() => setOverId(null)}
         >
@@ -593,7 +667,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
           )}
           <div className="row__txt">
             <b>{item.title}</b>
-            <span>{rowHint(item)}</span>
+            <span>{rowHint(item, col)}</span>
           </div>
           <div className="row__actions">
             {col.rowToggle && (() => {
@@ -615,7 +689,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
               <button
                 className="btn btn--primary btn--sm"
                 disabled={busy || !canEdit}
-                onClick={() => dropOn(list, i)}
+                onClick={() => dropOn(list, all, i)}
               >
                 Вставити сюди
               </button>
@@ -634,7 +708,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
               className="btn btn--ghost btn--sm btn--icon"
               aria-label="Вище"
               disabled={busy || !canEdit || i === 0}
-              onClick={() => move(list, i, -1)}
+              onClick={() => reorderIn(list, all, i, i - 1)}
             >
               ↑
             </button>
@@ -642,7 +716,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
               className="btn btn--ghost btn--sm btn--icon"
               aria-label="Нижче"
               disabled={busy || !canEdit || i === list.length - 1}
-              onClick={() => move(list, i, 1)}
+              onClick={() => reorderIn(list, all, i, i + 1)}
             >
               ↓
             </button>
@@ -660,13 +734,14 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
         <button
           className="btn btn--primary"
           disabled={!canEdit}
-          onClick={() => startEdit(col, emptyItem(col))}
+          onClick={() => startEdit(col, newItem())}
         >
-          + Додати
+          {gVal ? `+ Додати у «${gName}»` : "+ Додати"}
         </button>
       )}
     </>
-  );
+    );
+  };
 
   /* ---------- Рендер ---------- */
 

@@ -23,6 +23,10 @@ export type CollectionDef = {
   name: string;
   fields: FieldDef[];
   rowToggle?: RowToggleDef;
+  // ключ поля-списку (type: select), за яким ділити картки на розділи.
+  // Над списком зʼявляться кнопки розділів: власник обирає розділ,
+  // бачить лише його картки й додає нову одразу туди.
+  groupBy?: string;
   adminOnly?: boolean; // вкладку бачить лише власник платформи (роль admin)
   noAdd?: boolean; // приховати кнопку «+ Додати»
   noDelete?: boolean; // приховати кнопку «Видалити»

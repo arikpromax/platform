@@ -84,6 +84,22 @@ body{
 .rowtog--on{background:#1f9d55;border-color:#1f9d55;color:#fff}
 .rowtog--on:hover{background:#188a4a}
 
+/* вибір розділу над списком карток (CollectionDef.groupBy):
+   власник спершу тикає розділ, а тоді бачить і додає тільки в нього */
+.groups{margin:0 0 16px}
+.groups__l{display:block;margin-bottom:8px;font-size:.86rem;font-weight:600;opacity:.65}
+.groups__row{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:7px;cursor:pointer;
+  padding:9px 14px;border:1px solid rgba(120,140,170,.28);border-radius:999px;
+  background:rgba(120,140,170,.08);font-size:.9rem;font-weight:600;color:inherit;
+  transition:background .15s,border-color .15s}
+.chip:hover{background:rgba(120,140,170,.18)}
+.chip i{font-style:normal;font-size:.78rem;font-weight:700;opacity:.55;
+  padding:1px 7px;border-radius:999px;background:rgba(120,140,170,.20)}
+.chip--on{background:var(--accent,#6aa9ff);border-color:var(--accent,#6aa9ff);color:#fff}
+.chip--on:hover{filter:brightness(.94)}
+.chip--on i{background:rgba(255,255,255,.28);opacity:.9}
+
 /* вкладка-вибиралка: галочка «показувати» просто в рядку списку */
 .pick__box{display:flex;align-items:center;gap:8px;flex-shrink:0;cursor:pointer;
   padding:8px 12px;border-radius:10px;background:rgba(120,140,170,.10);
