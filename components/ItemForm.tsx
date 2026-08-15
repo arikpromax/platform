@@ -20,6 +20,11 @@ type Props = {
   onDelete?: () => void; // тільки для наявних карток
 };
 
+/* Код промокоду. Без O/0 та I/1/L — їх плутають, коли диктують по телефону. */
+const CODE_ABC = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+const randomCode = (len = 6) =>
+  Array.from({ length: len }, () => CODE_ABC[Math.floor(Math.random() * CODE_ABC.length)]).join("");
+
 /**
  * Форма-конструктор: малює поля картки за описом із конфіга сайту.
  * Типи полів: text, textarea, checkbox, image, select-collection.
@@ -309,11 +314,21 @@ export default function ItemForm({
             );
           }
 
-          // звичайне текстове поле
+          // звичайне текстове поле; з gen:"code" поруч зʼявляється кнопка,
+          // яка вигадує код замість власника
           return (
             <div className="field" key={f.key}>
               <label htmlFor={id}>{f.name}</label>
-              <input id={id} type="text" value={get(f)} onChange={(e) => set(f, e.target.value)} />
+              {f.gen === "code" ? (
+                <div className="gen-row">
+                  <input id={id} type="text" value={get(f)} onChange={(e) => set(f, e.target.value)} />
+                  <button type="button" className="btn btn--ghost btn--sm" onClick={() => set(f, randomCode())}>
+                    Згенерувати
+                  </button>
+                </div>
+              ) : (
+                <input id={id} type="text" value={get(f)} onChange={(e) => set(f, e.target.value)} />
+              )}
               {hint}
             </div>
           );
