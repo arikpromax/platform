@@ -39,6 +39,14 @@ where site_id = 5 and collection = 'cats' and extra->>'catkey' = 'wok';
 update public.items set sort_order = 11
 where site_id = 5 and collection = 'cats' and extra->>'catkey' = 'add';
 
+-- «Усі» — перша кнопка стрічки розділів. Свого списку страв не має,
+-- але власнику треба мати змогу задати їй назву й картинку.
+insert into public.items (site_id, collection, title, extra, sort_order)
+select 5, 'cats', 'Усі', '{"catkey":"all"}'::jsonb, 0
+where not exists (
+  select 1 from public.items
+  where site_id = 5 and collection = 'cats' and extra->>'catkey' = 'all');
+
 insert into public.items (site_id, collection, title, extra, sort_order)
 select 5, 'cats', 'Бургери', '{"catkey":"burg"}'::jsonb, 8
 where not exists (
