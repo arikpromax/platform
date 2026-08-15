@@ -14,10 +14,15 @@ export type FieldDef = {
   hint?: string; // сірий рядок під полем: приклад або пояснення для власника
 };
 
+// Кнопка-перемикач просто в рядку списку: вмикає прапорець в extra
+// без відкривання картки. Для «винести на головну», «в банер» тощо.
+export type RowToggleDef = { flag: string; label: string; title?: string };
+
 export type CollectionDef = {
   key: string;
   name: string;
   fields: FieldDef[];
+  rowToggle?: RowToggleDef;
   adminOnly?: boolean; // вкладку бачить лише власник платформи (роль admin)
   noAdd?: boolean; // приховати кнопку «+ Додати»
   noDelete?: boolean; // приховати кнопку «Видалити»
@@ -26,22 +31,9 @@ export type TextDef = { key: string; name: string; multiline?: boolean };
 // Розділ адмінки «як на сайті»: групує тексти, колекції та фото одного блока сайту.
 // Якщо в конфігу є sections — вкладки адмінки будуються за ними (по порядку сайту);
 // якщо нема — стара поведінка (вкладка на кожну колекцію + «Тексти»).
-// Вкладка-«вибиралка»: показує картки з інших колекцій одним списком,
-// щоб позначити галочкою, які з них потрапляють у якийсь блок сайту.
-// Нічого не створює і не видаляє — лише перемикає прапорець в extra.
-export type PickerDef = {
-  from: string[]; // з яких колекцій брати картки
-  flag: string; // ключ у extra, який вмикається галочкою
-  label: string; // підпис галочки
-  textKey?: string; // необовʼязкове поле поруч (напр. підпис на банері)
-  textLabel?: string;
-  empty?: string; // що написати, коли нічого не позначено
-};
-
 export type SectionDef = {
   name: string;
   note?: string; // пояснення вгорі вкладки: що це за блок і де він на сайті
-  picker?: PickerDef;
   texts?: string[]; // ключі текстів цього блока
   collections?: string[]; // ключі колекцій цього блока
   photos?: string[]; // слоти фото сайту (extra.slot) цього блока

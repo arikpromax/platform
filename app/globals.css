@@ -79,6 +79,11 @@ body{
   background:rgba(106,169,255,.10);border:1px solid rgba(106,169,255,.30);
   border-radius:10px;padding:9px 12px}
 
+/* кнопка-перемикач у рядку списку (CollectionDef.rowToggle) */
+.rowtog{white-space:nowrap}
+.rowtog--on{background:#1f9d55;border-color:#1f9d55;color:#fff}
+.rowtog--on:hover{background:#188a4a}
+
 /* вкладка-вибиралка: галочка «показувати» просто в рядку списку */
 .pick__box{display:flex;align-items:center;gap:8px;flex-shrink:0;cursor:pointer;
   padding:8px 12px;border-radius:10px;background:rgba(120,140,170,.10);
