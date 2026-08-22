@@ -272,6 +272,9 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
     const row = { ...editing };
     if (!row.id) {
       delete row.id;
+      // технічний код розділу власник не бачить і не вводить
+      if (editingCol.autoKey && !String((row.extra ?? {})[editingCol.autoKey] ?? "").trim())
+        row.extra = { ...(row.extra ?? {}), [editingCol.autoKey]: "c" + Date.now().toString(36) };
       const list = listFor(editingCol.key);
       row.sort_order = list.length ? Math.max(...list.map((i) => i.sort_order)) + 1 : 1;
     }
@@ -402,6 +405,18 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
   // поле, за яким ділимо, і його значення в картці
   const groupField = (col: CollectionDef) =>
     col.groupBy ? col.fields.find((f) => f.key === col.groupBy) : undefined;
+
+  /* Варіанти розділів. Для select-collection беремо їх із самої
+     колекції, а не з конфіга: тоді перейменування розділу в його
+     списку одразу міняє підпис на кнопці, без правок коду. */
+  const groupOptions = (f: FieldDef): Option[] => {
+    if (f.type === "select-collection" && f.from)
+      return (itemsByCol[f.from] ?? []).map((o) => ({
+        value: String((o.extra ?? {})["catkey"] ?? o.id),
+        label: o.title,
+      }));
+    return f.options ?? [];
+  };
 
   const groupValue = (item: Item, f: FieldDef) =>
     String((f.extra ? (item.extra ?? {})[f.key] : (item as unknown as Record<string, unknown>)[f.key]) ?? "");
@@ -575,7 +590,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
   // Один список карток (використовується в обох режимах)
   const renderRows = (col: CollectionDef, all: Item[]) => {
     const gf = groupField(col);
-    const gOpts = gf?.options ?? [];
+    const gOpts = gf ? groupOptions(gf) : [];
     const gVal = group[col.key] ?? "";
     const list = gf && gVal ? all.filter((it) => groupValue(it, gf) === gVal) : all;
     const gName = gOpts.find((o) => o.value === gVal)?.label ?? "";
