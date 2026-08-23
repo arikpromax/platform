@@ -409,13 +409,16 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
   /* Варіанти розділів. Для select-collection беремо їх із самої
      колекції, а не з конфіга: тоді перейменування розділу в його
      списку одразу міняє підпис на кнопці, без правок коду. */
-  const groupOptions = (f: FieldDef): Option[] => {
+  const groupOptions = (f: FieldDef, col?: CollectionDef): Option[] => {
+    const skip = new Set(col?.groupSkip ?? []);
     if (f.type === "select-collection" && f.from)
-      return (itemsByCol[f.from] ?? []).map((o) => ({
-        value: String((o.extra ?? {})["catkey"] ?? o.id),
-        label: o.title,
-      }));
-    return f.options ?? [];
+      return (itemsByCol[f.from] ?? [])
+        .map((o) => ({
+          value: String((o.extra ?? {})["catkey"] ?? o.id),
+          label: o.title,
+        }))
+        .filter((o) => !skip.has(o.value));
+    return (f.options ?? []).filter((o) => !skip.has(o.value));
   };
 
   const groupValue = (item: Item, f: FieldDef) =>
@@ -590,7 +593,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
   // Один список карток (використовується в обох режимах)
   const renderRows = (col: CollectionDef, all: Item[]) => {
     const gf = groupField(col);
-    const gOpts = gf ? groupOptions(gf) : [];
+    const gOpts = gf ? groupOptions(gf, col) : [];
     const gVal = group[col.key] ?? "";
     const list = gf && gVal ? all.filter((it) => groupValue(it, gf) === gVal) : all;
     const gName = gOpts.find((o) => o.value === gVal)?.label ?? "";
