@@ -102,6 +102,9 @@ body{
   padding:1px 7px;border-radius:999px;background:rgba(120,140,170,.20)}
 .chip--on{background:var(--accent,#6aa9ff);border-color:var(--accent,#6aa9ff);color:#fff}
 .chip--on:hover{filter:brightness(.94)}
+/* картку взято через ⇅ — розділи стають мішенями для перенесення */
+.chip--drop{border-style:dashed;border-color:var(--accent,#6aa9ff);color:var(--accent,#6aa9ff)}
+.chip--drop:hover{background:var(--accent,#6aa9ff);color:#fff}
 .chip--on i{background:rgba(255,255,255,.28);opacity:.9}
 
 /* вкладка-вибиралка: галочка «показувати» просто в рядку списку */

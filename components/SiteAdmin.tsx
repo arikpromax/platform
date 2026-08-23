@@ -598,6 +598,35 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
     const list = gf && gVal ? all.filter((it) => groupValue(it, gf) === gVal) : all;
     const gName = gOpts.find((o) => o.value === gVal)?.label ?? "";
 
+    /* ---------- Перенести картку в інший розділ ----------
+       ⇅ раніше лише міняв порядок усередині розділу, і люди справедливо
+       очікували, що ним же можна перекинути позицію в сусідній. Тепер
+       після ⇅ достатньо тицьнути назву розділу вгорі (або перетягнути
+       картку мишею просто на неї). */
+    const moveToGroup = async (id: number, value: string) => {
+      setPicked(null);
+      const row = all.find((r) => r.id === id);
+      if (!gf || !value || !row || groupValue(row, gf) === value) {
+        setGroup((g) => ({ ...g, [col.key]: value }));
+        return;
+      }
+      const next = gf.extra
+        ? { ...row, extra: { ...(row.extra ?? {}), [gf.key]: value } }
+        : ({ ...row, [gf.key]: value } as Item);
+
+      setBusy(true);
+      const { error } = await supabase.from("items").upsert(next);
+      if (error) setNotice({ kind: "err", text: "Не вдалося перенести: " + error.message });
+      else
+        setNotice({
+          kind: "ok",
+          text: `«${row.title}» перенесено в розділ «${gOpts.find((o) => o.value === value)?.label ?? value}» ✔`,
+        });
+      setGroup((g) => ({ ...g, [col.key]: value }));
+      await reload();
+      setBusy(false);
+    };
+
     // нова картка одразу потрапляє в обраний розділ
     const newItem = () => {
       const it = emptyItem(col);
@@ -612,7 +641,9 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
     <>
       {gf && gOpts.length > 0 && (
         <div className="groups">
-          <span className="groups__l">Оберіть розділ:</span>
+          <span className="groups__l">
+            {picked != null ? "Тицьніть розділ, куди перенести:" : "Оберіть розділ:"}
+          </span>
           <div className="groups__row">
             <button
               className={"chip" + (gVal === "" ? " chip--on" : "")}
@@ -625,8 +656,26 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
               return (
                 <button
                   key={o.value}
-                  className={"chip" + (gVal === o.value ? " chip--on" : "")}
-                  onClick={() => setGroup((g) => ({ ...g, [col.key]: o.value }))}
+                  className={
+                    "chip" +
+                    (gVal === o.value ? " chip--on" : "") +
+                    (picked != null && gVal !== o.value ? " chip--drop" : "")
+                  }
+                  disabled={busy}
+                  onClick={() =>
+                    picked != null
+                      ? moveToGroup(picked, o.value)
+                      : setGroup((g) => ({ ...g, [col.key]: o.value }))
+                  }
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const id = Number(e.dataTransfer.getData("text/plain"));
+                    if (id) moveToGroup(id, o.value);
+                  }}
                 >
                   {o.label} <i>{n}</i>
                 </button>
@@ -643,7 +692,8 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
       )}
       {picked != null && (
         <p className="note note--pick">
-          Картку взято. Натисніть «Вставити сюди» там, де вона має стояти.{" "}
+          Картку взято. Натисніть «Вставити сюди» там, де вона має стояти
+          {gf && gOpts.length > 0 ? ", або тицьніть назву розділу вгорі, щоб перенести туди" : ""}.{" "}
           <button className="btn btn--ghost btn--sm" onClick={() => setPicked(null)}>
             Скасувати
           </button>
@@ -716,7 +766,8 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
                 className="btn btn--ghost btn--sm btn--icon"
                 title="Взяти картку, щоб перенести"
                 aria-label="Перенести"
-                disabled={busy || !canEdit || list.length < 2}
+                // в розділі може бути й одна картка — її теж треба вміти перенести
+                disabled={busy || !canEdit || (list.length < 2 && !(gf && gOpts.length > 0))}
                 onClick={() => setPicked(picked === item.id ? null : (item.id ?? null))}
               >
                 ⇅
