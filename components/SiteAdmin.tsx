@@ -229,17 +229,24 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
     // підвантажуємо варіанти для полів-довідників (наприклад, список категорій)
     const opts: Record<string, Option[]> = {};
     for (const f of col.fields) {
-      if (f.type === "select-collection" && f.from) {
+      if ((f.type === "select-collection" || f.type === "multi-collection") && f.from) {
         const { data } = await supabase
           .from("items")
           .select("*")
           .eq("site_id", site.id)
           .eq("collection", f.from)
           .order("sort_order");
-        opts[f.key] = ((data ?? []) as Item[]).map((o) => ({
-          value: String((o.extra ?? {})["catkey"] ?? o.id),
-          label: o.title,
-        }));
+        let rows = (data ?? []) as Item[];
+        // multi-collection може звузити список: напр. лише картки з extra.cat = drinks
+        if (f.whereExtra)
+          rows = rows.filter(
+            (o) => String((o.extra ?? {})[f.whereExtra!.key] ?? "") === f.whereExtra!.value,
+          );
+        opts[f.key] = rows.map((o) =>
+          f.type === "multi-collection"
+            ? { value: o.title, label: o.title } // зберігаємо назву — її ж читає сайт
+            : { value: String((o.extra ?? {})["catkey"] ?? o.id), label: o.title },
+        );
       }
     }
     setSelOptions(opts);

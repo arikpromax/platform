@@ -133,6 +133,45 @@ export default function ItemForm({
               </div>
             );
 
+          if (f.type === "multi-collection") {
+            // вибране тримаємо як назви, кожна з нового рядка — так само читає сайт
+            const chosen = get(f)
+              .split(/[\n,;]+/)
+              .map((s) => s.trim())
+              .filter(Boolean);
+            const toggle = (label: string, on: boolean) => {
+              const next = on
+                ? [...chosen, label]
+                : chosen.filter((c) => c.toLowerCase() !== label.toLowerCase());
+              set(f, next.join("\n"));
+            };
+            const list = options[f.key] ?? [];
+            return (
+              <div className="field" key={f.key}>
+                <label>{f.name}</label>
+                {list.length === 0 ? (
+                  <p className="fhint">Список порожній — спершу додайте позиції.</p>
+                ) : (
+                  list.map((o) => {
+                    const on = chosen.some((c) => c.toLowerCase() === o.label.toLowerCase());
+                    return (
+                      <label className="check-row" key={o.value} htmlFor={`${id}-${o.value}`}>
+                        <input
+                          id={`${id}-${o.value}`}
+                          type="checkbox"
+                          checked={on}
+                          onChange={(e) => toggle(o.label, e.target.checked)}
+                        />
+                        {o.label}
+                      </label>
+                    );
+                  })
+                )}
+                {hint}
+              </div>
+            );
+          }
+
           if (f.type === "select-collection")
             return (
               <div className="field" key={f.key}>

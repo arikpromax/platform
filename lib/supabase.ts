@@ -7,9 +7,21 @@ export type FieldDef = {
   key: string;
   name: string;
   // images — кілька фото в одному полі: кнопка «Додати фото», масив у extra
-  type: "text" | "textarea" | "checkbox" | "image" | "images" | "select" | "select-collection";
+  // multi-collection — список галочок із іншої колекції (напр. «які напої пропонувати»);
+  // вибране зберігається як назви, кожна з нового рядка
+  type:
+    | "text"
+    | "textarea"
+    | "checkbox"
+    | "image"
+    | "images"
+    | "select"
+    | "select-collection"
+    | "multi-collection";
   extra?: boolean; // true — поле зберігається в items.extra, а не в окремій колонці
-  from?: string; // для select-collection: з якої колекції брати варіанти
+  from?: string; // для select-collection і multi-collection: з якої колекції брати варіанти
+  // для multi-collection: показати лише картки, у яких extra[key] === value
+  whereExtra?: { key: string; value: string };
   options?: { value: string; label: string }[]; // для select: готові варіанти
   hint?: string; // сірий рядок під полем: приклад або пояснення для власника
   // "code" — поруч із полем зʼявляється кнопка «Згенерувати»,
