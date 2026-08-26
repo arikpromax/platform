@@ -48,13 +48,13 @@ where not exists (
   where site_id = 5 and collection = 'cats' and extra->>'catkey' = 'all');
 
 insert into public.items (site_id, collection, title, extra, sort_order)
-select 5, 'cats', 'Бургери', '{"catkey":"burg"}'::jsonb, 8
+select 5, 'cats', 'Бургери', '{"catkey":"burg"}'::jsonb, 100
 where not exists (
   select 1 from public.items
   where site_id = 5 and collection = 'cats' and extra->>'catkey' = 'burg');
 
 insert into public.items (site_id, collection, title, extra, sort_order)
-select 5, 'cats', 'Шаурма', '{"catkey":"shau"}'::jsonb, 9
+select 5, 'cats', 'Шаурма', '{"catkey":"shau"}'::jsonb, 101
 where not exists (
   select 1 from public.items
   where site_id = 5 and collection = 'cats' and extra->>'catkey' = 'shau');
@@ -226,7 +226,12 @@ delete from public.texts where site_id = 5 and key in ('far_km', 'far_fee');
 -- там вони поруч із тим, чого стосуються. Серед текстів більше не потрібні.
 delete from public.texts where site_id = 5 and key in ('open_msg', 'shut_msg');
 
--- Порядок розділів меню. У кількох рядків номери збіглися, а коли
+-- Порядок розділів меню. Нові розділи вище додаються з завідомо
+-- великими номерами, щоб не зіткнутися з наявними, а тут усе
+-- перенумеровується підряд.
+--
+-- Раніше вони вставлялися з номерами 8 і 9 — тими самими, що вже
+-- мали «Вок» і «Напої та додатки». У кількох рядків номери збіглися, а коли
 -- номери однакові, база вільна віддавати такі рядки в будь-якій
 -- послідовності: на сайті розділи стрибали з місця на місце, а
 -- перетягування в адмінці ніби скасовувалося саме собою.
