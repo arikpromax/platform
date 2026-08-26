@@ -226,6 +226,20 @@ delete from public.texts where site_id = 5 and key in ('far_km', 'far_fee');
 -- там вони поруч із тим, чого стосуються. Серед текстів більше не потрібні.
 delete from public.texts where site_id = 5 and key in ('open_msg', 'shut_msg');
 
+-- Порядок розділів меню. У кількох рядків номери збіглися, а коли
+-- номери однакові, база вільна віддавати такі рядки в будь-якій
+-- послідовності: на сайті розділи стрибали з місця на місце, а
+-- перетягування в адмінці ніби скасовувалося саме собою.
+-- Перенумеровуємо підряд, зберігаючи нинішній порядок.
+with numbered as (
+  select id, row_number() over (order by sort_order nulls last, id) as pos
+  from public.items
+  where site_id = 5 and collection = 'cats'
+)
+update public.items i set sort_order = n.pos
+from numbered n
+where i.id = n.id and i.sort_order is distinct from n.pos;
+
 -- Час готовності змінився. Правимо тільки тим, у кого лишилося старе
 -- значення за замовчуванням: власний текст не чіпаємо.
 update public.texts set value = '15–45 хв'
