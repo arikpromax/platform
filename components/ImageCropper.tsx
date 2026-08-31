@@ -24,6 +24,7 @@ export default function ImageCropper({
   onCancel: () => void;
 }) {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
+  const [err, setErr] = useState(""); // чому фото не стало в рамку
   const [scale, setScale] = useState(1); // множник до базового «cover»
   const [minScale, setMinScale] = useState(1);
   const [maxScale, setMaxScale] = useState(4);
@@ -35,7 +36,19 @@ export default function ImageCropper({
   useEffect(() => {
     const im = new Image();
     im.crossOrigin = "anonymous"; // щоб можна було перемалювати в canvas
+    im.onerror = () => {
+      setErr(
+        "Браузер не зміг відкрити цей файл. Найчастіше так буває з фото з iPhone (формат HEIC): " +
+          "надішліть його собі через Viber чи Telegram — вони віддають звичайний JPG — і завантажте вже його."
+      );
+    };
     im.onload = () => {
+      // SVG та деякі файли вантажаться, але не мають розміру — кадрувати нічого
+      if (!im.naturalWidth || !im.naturalHeight) {
+        setErr("Це не звичайне фото — у файлі немає розміру. Потрібен JPG або PNG.");
+        return;
+      }
+      setErr("");
       setImg(im);
       const cover = VIEW / Math.min(im.naturalWidth, im.naturalHeight); // фото заповнює рамку
       const contain = VIEW / Math.max(im.naturalWidth, im.naturalHeight); // усе фото видно
@@ -132,6 +145,8 @@ export default function ImageCropper({
           🖐 Тягніть фото, щоб посунути · повзунок ↔ наближає. Щоб рухати більше — наблизьте сильніше.
         </p>
 
+        {err && <p className="crop-err">{err}</p>}
+
         <div
           className="crop-view"
           style={{ width: VIEW, height: VIEW }}
@@ -168,7 +183,7 @@ export default function ImageCropper({
         </div>
 
         <div className="crop-actions">
-          <button type="button" className="btn btn--primary btn--sm" onClick={finish}>
+          <button type="button" className="btn btn--primary btn--sm" onClick={finish} disabled={!img}>
             Готово
           </button>
           <button type="button" className="btn btn--ghost btn--sm" onClick={onCancel}>
