@@ -36,16 +36,21 @@ export default function ImageCropper({
   useEffect(() => {
     const im = new Image();
     im.crossOrigin = "anonymous"; // щоб можна було перемалювати в canvas
+    // Підпис файлу — щоб було видно, що саме не відкрилось
+    const about = file
+      ? " (" + file.name + ", " + Math.round(file.size / 1024) + " КБ)"
+      : "";
     im.onerror = () => {
       setErr(
-        "Браузер не зміг відкрити цей файл. Найчастіше так буває з фото з iPhone (формат HEIC): " +
-          "надішліть його собі через Viber чи Telegram — вони віддають звичайний JPG — і завантажте вже його."
+        "Браузер не зміг відкрити цей файл" + about + ". Найчастіше так буває з фото з iPhone " +
+          "(формат HEIC): надішліть його собі через Viber чи Telegram — вони віддають звичайний " +
+          "JPG — і завантажте вже його."
       );
     };
     im.onload = () => {
       // SVG та деякі файли вантажаться, але не мають розміру — кадрувати нічого
       if (!im.naturalWidth || !im.naturalHeight) {
-        setErr("Це не звичайне фото — у файлі немає розміру. Потрібен JPG або PNG.");
+        setErr("Це не звичайне фото" + about + " — у файлі немає розміру. Потрібен JPG або PNG.");
         return;
       }
       setErr("");
