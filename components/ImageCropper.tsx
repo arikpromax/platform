@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from "react";
   його як є, без жодних додаткових налаштувань позиції.
 */
 
-const OUT = 800; // розмір готового квадратного фото, px
+const OUT = 1600; // розмір готового квадратного фото, px
 const VIEW = 300; // розмір рамки на екрані, px
 
 /* Фото з iPhone. Тип файлу буває порожній, тому дивимось і на розширення. */
@@ -152,7 +152,8 @@ export default function ImageCropper({
     if (!ctx) return;
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, OUT, OUT);
-    // те, що видно в рамці, збільшуємо до 800px
+    ctx.imageSmoothingQuality = "high"; // менше «милка» при зменшенні
+    // те, що видно в рамці, збільшуємо до розміру готового фото
     const k = OUT / VIEW;
     const drawW = shown.w * k;
     const drawH = shown.h * k;
@@ -164,7 +165,7 @@ export default function ImageCropper({
         if (blob) onDone(blob);
       },
       "image/jpeg",
-      0.9
+      0.92
     );
   };
 
