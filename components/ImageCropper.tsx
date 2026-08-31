@@ -12,6 +12,9 @@ import { useEffect, useRef, useState } from "react";
 const OUT = 800; // розмір готового квадратного фото, px
 const VIEW = 300; // розмір рамки на екрані, px
 
+/* Фото з iPhone. Тип файлу буває порожній, тому дивимось і на розширення. */
+const isHeic = (f: File) => /hei[cf]/i.test(f.type) || /\.hei[cf]$/i.test(f.name);
+
 export default function ImageCropper({
   file,
   src,
@@ -25,6 +28,7 @@ export default function ImageCropper({
 }) {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [err, setErr] = useState(""); // чому фото не стало в рамку
+  const [wait, setWait] = useState(""); // що зараз робимо з файлом
   const [scale, setScale] = useState(1); // множник до базового «cover»
   const [minScale, setMinScale] = useState(1);
   const [maxScale, setMaxScale] = useState(4);
@@ -62,13 +66,35 @@ export default function ImageCropper({
       setScale(cover * 1.15); // старт: трохи наближено, щоб одразу можна тягнути
       setPos({ x: 0, y: 0 });
     };
-    if (file) {
-      objUrl.current = URL.createObjectURL(file);
-      im.src = objUrl.current;
-    } else if (src) {
-      im.src = src;
-    }
+    let dead = false;
+    (async () => {
+      if (file) {
+        let blob: Blob = file;
+        // Фото з iPhone (HEIC) браузер не відкриває — перетворюємо тут же, у браузері
+        if (isHeic(file)) {
+          setWait("Перетворюю фото з iPhone… кілька секунд");
+          try {
+            const heic2any = (await import("heic2any")).default;
+            const out = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 });
+            blob = Array.isArray(out) ? out[0] : out;
+          } catch {
+            if (!dead) {
+              setWait("");
+              setErr("Не вдалося перетворити це фото з iPhone" + about + ". Збережіть його як JPG і спробуйте ще раз.");
+            }
+            return;
+          }
+          if (dead) return;
+          setWait("");
+        }
+        objUrl.current = URL.createObjectURL(blob);
+        im.src = objUrl.current;
+      } else if (src) {
+        im.src = src;
+      }
+    })();
     return () => {
+      dead = true;
       if (objUrl.current) URL.revokeObjectURL(objUrl.current);
     };
   }, [file, src]);
@@ -150,6 +176,7 @@ export default function ImageCropper({
           🖐 Тягніть фото, щоб посунути · повзунок ↔ наближає. Щоб рухати більше — наблизьте сильніше.
         </p>
 
+        {wait && <p className="crop-wait">{wait}</p>}
         {err && <p className="crop-err">{err}</p>}
 
         <div

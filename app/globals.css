@@ -234,6 +234,8 @@ body{
 .crop-actions{display:flex;gap:8px}
 .crop-err{margin-bottom:14px;padding:10px 12px;border-radius:10px;
   background:#FDECEC;color:#8E2A2A;font-size:.9rem;line-height:1.4}
+.crop-wait{margin-bottom:14px;padding:10px 12px;border-radius:10px;
+  background:#E8F5F2;color:#12594C;font-size:.9rem;line-height:1.4}
 
 /* видалення картки — окремий блок унизу форми */
 .form-danger{margin-top:22px;padding-top:16px;border-top:1px solid var(--line)}
