@@ -173,6 +173,17 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
     if ((activeSec.photos ?? []).length > 0 && !keys.includes("site_photos")) {
       keys.push("site_photos");
     }
+    /* Колекція, за якою ділимо список (col.groupBy), може жити в іншій
+       вкладці — як «Розділи меню» окремо від «Страв». Її теж треба взяти,
+       інакше кнопки розділів над списком просто не з'являться. */
+    const defs = site.config?.collections ?? [];
+    for (const key of [...keys]) {
+      const col = defs.find((c) => c.key === key);
+      const gf = col?.groupBy ? col.fields.find((f) => f.key === col.groupBy) : undefined;
+      if (gf?.type === "select-collection" && gf.from && !keys.includes(gf.from)) {
+        keys.push(gf.from);
+      }
+    }
     const map: Record<string, Item[]> = {};
     for (const key of keys) {
       const { data, error } = await supabase
@@ -188,7 +199,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
       map[key] = (data ?? []) as Item[];
     }
     setItemsByCol(map);
-  }, [supabase, site.id, activeSec]);
+  }, [supabase, site.id, site.config, activeSec]);
 
   useEffect(() => {
     setEditing(null);
