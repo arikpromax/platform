@@ -26,10 +26,10 @@ async function heicToJpeg(file: File): Promise<Blob> {
   const image = images[0];
   const w = image.get_width();
   const h = image.get_height();
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d");
+  const full = document.createElement("canvas");
+  full.width = w;
+  full.height = h;
+  const ctx = full.getContext("2d");
   if (!ctx) throw new Error("немає canvas");
 
   const data = ctx.createImageData(w, h);
@@ -38,8 +38,29 @@ async function heicToJpeg(file: File): Promise<Blob> {
   });
   ctx.putImageData(data, 0, 0);
 
-  const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/jpeg", 0.95));
-  if (!blob) throw new Error("не вийшов JPEG");
+  /* Знімок з iPhone — 12 мегапікселів. Тримати таке полотно телефону важко,
+     а кадрувалці більше 2400 px усе одно не треба, тож одразу зменшуємо. */
+  const MAX = 2400;
+  let out = full;
+  if (Math.max(w, h) > MAX) {
+    const k = MAX / Math.max(w, h);
+    out = document.createElement("canvas");
+    out.width = Math.round(w * k);
+    out.height = Math.round(h * k);
+    const octx = out.getContext("2d");
+    if (!octx) throw new Error("немає canvas");
+    octx.imageSmoothingQuality = "high";
+    octx.drawImage(full, 0, 0, out.width, out.height);
+    full.width = full.height = 0; // віддаємо памʼять одразу
+  }
+
+  let blob = await new Promise<Blob | null>((r) => out.toBlob(r, "image/jpeg", 0.95));
+  if (!blob) {
+    // на деяких телефонах toBlob віддає порожньо — пробуємо інакше
+    const url = out.toDataURL("image/jpeg", 0.95);
+    blob = await (await fetch(url)).blob();
+  }
+  if (!blob || !blob.size) throw new Error("не вийшов JPEG");
   return blob;
 }
 
@@ -103,10 +124,14 @@ export default function ImageCropper({
           setWait("Перетворюю фото з iPhone… кілька секунд");
           try {
             blob = await heicToJpeg(file);
-          } catch {
+          } catch (e) {
             if (!dead) {
               setWait("");
-              setErr("Не вдалося перетворити це фото з iPhone" + about + ". Збережіть його як JPG і спробуйте ще раз.");
+              const why = e instanceof Error && e.message ? " Причина: " + e.message + "." : "";
+              setErr(
+                "Не вдалося перетворити це фото з iPhone" + about + "." + why +
+                  " Спробуйте ще раз — на телефоні допомагає закрити зайві вкладки. Або збережіть фото як JPG."
+              );
             }
             return;
           }
