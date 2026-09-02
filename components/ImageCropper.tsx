@@ -15,6 +15,34 @@ const VIEW = 300; // розмір рамки на екрані, px
 /* Фото з iPhone. Тип файлу буває порожній, тому дивимось і на розширення. */
 const isHeic = (f: File) => /hei[cf]/i.test(f.type) || /\.hei[cf]$/i.test(f.name);
 
+/* HEIC браузер не відкриває — розбираємо його самі й віддаємо JPEG.
+   libheif свіжої збірки: старіші декодери спотикались на нових знімках
+   iPhone (HDR із gain map — brand «tmap»), і завантажувалась лише частина фото. */
+async function heicToJpeg(file: File): Promise<Blob> {
+  const libheif = (await import("libheif-js/wasm-bundle")).default;
+  const images = new libheif.HeifDecoder().decode(new Uint8Array(await file.arrayBuffer()));
+  if (!images.length) throw new Error("у файлі немає картинки");
+
+  const image = images[0];
+  const w = image.get_width();
+  const h = image.get_height();
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("немає canvas");
+
+  const data = ctx.createImageData(w, h);
+  await new Promise<void>((resolve, reject) => {
+    image.display(data, (res) => (res ? resolve() : reject(new Error("libheif не впорався"))));
+  });
+  ctx.putImageData(data, 0, 0);
+
+  const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/jpeg", 0.95));
+  if (!blob) throw new Error("не вийшов JPEG");
+  return blob;
+}
+
 export default function ImageCropper({
   file,
   src,
@@ -74,9 +102,7 @@ export default function ImageCropper({
         if (isHeic(file)) {
           setWait("Перетворюю фото з iPhone… кілька секунд");
           try {
-            const heic2any = (await import("heic2any")).default;
-            const out = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 });
-            blob = Array.isArray(out) ? out[0] : out;
+            blob = await heicToJpeg(file);
           } catch {
             if (!dead) {
               setWait("");
