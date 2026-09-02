@@ -37,15 +37,15 @@ where not exists (select 1 from public.items where site_id = 101 and collection 
 insert into public.items (site_id, collection, title, extra, sort_order)
 select v.* from (values
   (101, 'points', 'Ковель', '{"pkey":"kovel","addr":"вул. Незалежності, 86","hours":"11:00 – 21:00","tel1":"067 121 33 66","tel2":"066 121 33 66","map":"https://maps.google.com/?q=Ковель,+вулиця+Незалежності,+86","free_from":"1400","mid_from":"700","mid_price":"100","low_price":"130","note":"Возимо щодня з 11:00 до 21:00, лише до підʼїзду"}'::jsonb, 1),
-  (101, 'points', 'Турійськ', '{"pkey":"turiisk","addr":"вул. Луцька, 12","hours":"11:00 – 19:00","tel1":"097 636 94 47","tel2":"050 560 19 01","map":"https://maps.google.com/?q=Турійськ,+вулиця+Луцька,+12","free_from":"","mid_from":"","mid_price":"","low_price":"","note":"Возимо щодня з 11:00 до 19:00"}'::jsonb, 2)
+  (101, 'points', 'Турійськ', '{"pkey":"turiisk","addr":"вул. Луцька, 12","hours":"11:00 – 19:00","tel1":"097 636 94 47","tel2":"050 560 19 01","map":"https://maps.google.com/?q=Турійськ,+вулиця+Луцька,+12","free_from":"1400","mid_from":"","mid_price":"","low_price":"","note":"Возимо щодня з 11:00 до 19:00"}'::jsonb, 2)
 ) as v(site_id, collection, title, extra, sort_order)
 where not exists (select 1 from public.items where site_id = 101 and collection = 'points');
 
 -- Суми доставки закладів. Це єдине місце, де файл править уже наявні
--- картки: у Турійську порогів немає (лишається сама примітка), а в Ковелі
+-- картки: у Турійську лишається тільки безкоштовний поріг, а в Ковелі
 -- «знижена доставка від» має читатись як 700, а не 701.
 update public.items
-set extra = extra || '{"free_from":"","mid_from":"","mid_price":"","low_price":""}'::jsonb
+set extra = extra || '{"free_from":"1400","mid_from":"","mid_price":"","low_price":""}'::jsonb
 where site_id = 101 and collection = 'points' and extra->>'pkey' = 'turiisk';
 
 update public.items
