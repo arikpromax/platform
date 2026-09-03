@@ -24,6 +24,7 @@ export default function AdminApp() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPolicy, setShowPolicy] = useState(false); // вікно «які дані ми зберігаємо»
   const [authBusy, setAuthBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -177,7 +178,64 @@ export default function AdminApp() {
               {authBusy ? "Входжу…" : "Увійти"}
             </button>
           </form>
+
+          <button type="button" className="policy-link" onClick={() => setShowPolicy(true)}>
+            <span aria-hidden="true">!</span> Які дані ми зберігаємо
+          </button>
         </div>
+
+        {showPolicy && (
+          <div className="policy-veil" onClick={() => setShowPolicy(false)}>
+            <div className="policy" onClick={(e) => e.stopPropagation()}>
+              <h2>Які дані ми зберігаємо</h2>
+
+              <h3>Що зберігається</h3>
+              <ul>
+                <li>
+                  <b>Ваш email і пароль</b> — щоб ви могли увійти. Пароль зберігається лише
+                  зашифрованим, ми його не бачимо.
+                </li>
+                <li>
+                  <b>Те, що ви самі вносите в адмінку</b> — меню, ціни, склад страв, фото, адреси,
+                  графік і телефони закладу. Це публічна інформація вашого сайту.
+                </li>
+                <li>
+                  <b>Технічні записи хостингу</b> — час звернення, IP-адреса, браузер. Так працює
+                  будь-який сайт; ми ці записи не читаємо й нікуди не передаємо.
+                </li>
+              </ul>
+
+              <h3>Чого ми не робимо</h3>
+              <ul>
+                <li>Не збираємо дані ваших клієнтів: замовлення нікуди не надсилаються.</li>
+                <li>Не ставимо лічильників, реклами й трекерів.</li>
+                <li>Не передаємо й не продаємо дані третім особам.</li>
+                <li>Не маємо доступу до вашої пошти чи телефона — лише адреса як логін.</li>
+              </ul>
+
+              <h3>Де це лежить</h3>
+              <p>
+                Дані зберігаються в Supabase, фотографії — у їхньому файловому сховищі. Сама адмінка
+                працює на Vercel. Це підрядники, які тримають сервери; доступ до вашого сайту маємо
+                тільки ви й розробник.
+              </p>
+
+              <h3>Ваші права</h3>
+              <p>
+                Ви будь-коли можете попросити змінити пароль, виправити чи повністю видалити дані
+                свого сайту. Після видалення вони не відновлюються.
+              </p>
+
+              <button
+                type="button"
+                className="btn btn--primary btn--sm"
+                onClick={() => setShowPolicy(false)}
+              >
+                Зрозуміло
+              </button>
+            </div>
+          </div>
+        )}
       </main>
     );
   }

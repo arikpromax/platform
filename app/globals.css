@@ -217,6 +217,31 @@ body{
   .cropper-veil{padding:8px}
 }
 
+/* ---------- «Які дані ми зберігаємо» на вході ---------- */
+.policy-link{
+  display:inline-flex;align-items:center;gap:8px;margin-top:16px;padding:0;
+  border:0;background:none;color:var(--muted);font-size:.85rem;cursor:pointer;text-decoration:underline;
+}
+.policy-link span{
+  display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;
+  border-radius:50%;background:var(--teal);color:#fff;font-weight:800;font-size:.72rem;text-decoration:none;
+}
+.policy-link:hover{color:var(--teal)}
+.policy-veil{
+  position:fixed;inset:0;z-index:1000;background:rgba(14,34,48,.55);
+  display:flex;align-items:center;justify-content:center;padding:20px;
+}
+.policy{
+  background:#fff;border-radius:16px;padding:26px;max-width:560px;width:100%;
+  max-height:86vh;overflow:auto;box-shadow:0 30px 70px -20px rgba(0,0,0,.5);
+}
+.policy h2{font-size:1.25rem;font-weight:800;margin-bottom:6px}
+.policy h3{font-size:.95rem;font-weight:800;margin:18px 0 6px}
+.policy p,.policy li{font-size:.92rem;line-height:1.55;color:var(--ink)}
+.policy ul{margin:0;padding-left:20px}
+.policy li{margin-bottom:6px}
+.policy .btn{margin-top:20px}
+
 /* ---------- Панель кадрування фото ---------- */
 .cropper-veil{position:fixed;inset:0;z-index:1000;background:rgba(14,34,48,.55);
   display:flex;align-items:center;justify-content:center;padding:20px}
