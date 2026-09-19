@@ -318,6 +318,13 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
     if (data) await startEdit(col, data as Item);
   };
 
+  /* Новий товар теж заводиться у «Складі»: щоб усе про товар було
+     в одному місці, а не половина тут, половина в каталозі. */
+  const addCard = async () => {
+    const col = collections.find((c) => c.key === stockCol);
+    if (col) await startEdit(col, emptyItem(col));
+  };
+
   const emptyItem = (col: CollectionDef): Item => ({
     site_id: site.id,
     collection: col.key,
@@ -1089,6 +1096,8 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
           {(activeSec.collections ?? []).map((key) => {
             const col = colByKey(key);
             if (!col) return null;
+            // товари переїхали у вкладку «Склад» — тут лишаються категорії й тексти
+            if (hasStock && key === stockCol) return null;
             return (
               <div className="card" key={key}>
                 <h2>{col.name}</h2>
@@ -1147,7 +1156,13 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
 
       {/* ---------- Склад і замовлення ---------- */}
       {hasStock && (useSections ? secIdx === stockIdx : tab === "__stock") && (
-        <StockAdmin key={"stock" + saveTick} site={site} canEdit={canEdit} onEdit={openCard} />
+        <StockAdmin
+          key={"stock" + saveTick}
+          site={site}
+          canEdit={canEdit}
+          onEdit={openCard}
+          onAdd={addCard}
+        />
       )}
       {hasStock && (useSections ? secIdx === ordersIdx : tab === "__orders") && (
         <OrdersAdmin site={site} canEdit={canEdit} />

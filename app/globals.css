@@ -318,6 +318,10 @@ body{
 .szr__n:focus{outline:0;border-color:var(--teal)}
 .szr--add{gap:8px;padding-top:12px;border-bottom:0}
 .szr__n--wide{width:132px}
+.szr--move{border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:4px}
+.szr__sel{padding:7px 10px;border:1.5px solid var(--line);border-radius:10px;background:#fff;
+  font-family:inherit;font-size:.9rem;min-width:170px}
+.szr__sel:focus{outline:0;border-color:var(--teal)}
 .delta{font-weight:800}
 .delta--up{color:var(--teal-ink)}
 .delta--dn{color:var(--err-ink)}

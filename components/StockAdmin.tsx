@@ -63,14 +63,22 @@ export default function StockAdmin({
   site,
   canEdit,
   onEdit,
+  onAdd,
 }: {
   site: Site;
   canEdit: boolean;
   // відкриває картку товару в тій самій формі, що й каталог
   onEdit?: (itemId: number) => void;
+  // створює новий товар тією ж формою
+  onAdd?: () => void;
 }) {
   const supabase = getSupabase()!;
   const colKey = site.config?.stockCollection ?? "products";
+  /* Розділи товарів лежать окремою колекцією — беремо її з опису поля
+     «Категорія» в картці товару. */
+  const catField = (site.config?.collections ?? [])
+    .find((c) => c.key === colKey)?.fields.find((f) => f.key === "cat");
+  const catKey = catField?.from ?? "cats";
 
   const [prods, setProds] = useState<Prod[]>([]);
   const [rows, setRows] = useState<StockRow[]>([]);
@@ -84,6 +92,8 @@ export default function StockAdmin({
   const [shown, setShown] = useState(25);
   const [draft, setDraft] = useState<Record<string, string>>({}); // «поставити рівно» по кожному розміру
   const [newSz, setNewSz] = useState<Record<number, string>>({}); // поле «новий розмір» по товару
+  const [cats, setCats] = useState<{ key: string; name: string }[]>([]);
+  const [cat, setCat] = useState<string>(""); // обраний розділ; порожньо — усі
 
   /* ---------- Завантаження ----------
      Позицій складу буває більше за тисячу, а база віддає максимум
@@ -120,7 +130,7 @@ export default function StockAdmin({
   const fetchAll = useCallback(async () => {
     // нові товари самі отримують рядки складу під свої розміри
     if (canEdit) await supabase.rpc("stock_sync", { p_site: site.id });
-    const [items, stock, moves] = await Promise.all([
+    const [items, stock, moves, catRows] = await Promise.all([
       supabase
         .from("items")
         .select("id,title,extra")
@@ -129,19 +139,30 @@ export default function StockAdmin({
         .order("sort_order"),
       fetchPaged("stock"),
       fetchMoves(),
+      supabase
+        .from("items")
+        .select("id,title,extra")
+        .eq("site_id", site.id)
+        .eq("collection", catKey)
+        .order("sort_order"),
     ]);
     if (items.error) throw new Error(items.error.message);
     return {
       prods: (items.data ?? []) as Prod[],
       rows: stock as unknown as StockRow[],
       moves,
+      cats: ((catRows.data ?? []) as Prod[]).map((c) => ({
+        key: String((c.extra ?? {})["catkey"] ?? c.id),
+        name: c.title,
+      })),
     };
-  }, [supabase, site.id, colKey, canEdit, fetchPaged, fetchMoves]);
+  }, [supabase, site.id, colKey, catKey, canEdit, fetchPaged, fetchMoves]);
 
-  const apply = (d: { prods: Prod[]; rows: StockRow[]; moves: StockMove[] }) => {
+  const apply = (d: { prods: Prod[]; rows: StockRow[]; moves: StockMove[]; cats: { key: string; name: string }[] }) => {
     setProds(d.prods);
     setRows(d.rows);
     setMoves(d.moves);
+    setCats(d.cats);
     setLoading(false);
   };
   const failed = (e: unknown) => {
@@ -213,13 +234,15 @@ export default function StockAdmin({
   const list = useMemo(() => {
     const needle = norm(q.trim());
     return prods.filter((p) => {
+      if (cat === "__none" && String(p.extra?.["cat"] ?? "").trim()) return false;
+      if (cat && cat !== "__none" && String(p.extra?.["cat"] ?? "") !== cat) return false;
       if (filter !== "all" && stateOf(p.id) !== filter) return false;
       if (!needle) return true;
       const sku = String(p.extra?.["sku"] ?? "");
       const brand = String(p.extra?.["brand"] ?? "");
       return norm(p.title + " " + brand + " " + sku).includes(needle);
     });
-  }, [prods, q, filter, stateOf]);
+  }, [prods, q, filter, cat, stateOf]);
 
   /* ---------- Дії ---------- */
 
@@ -319,6 +342,29 @@ export default function StockAdmin({
     const n = Math.max(0, Math.round(Number(value.replace(",", "."))));
     if (!Number.isFinite(n) || n === r.qty) return;
     await adjust(r.item_id, r.size, n - r.qty, "fix", "перерахунок");
+  };
+
+  /* Перенести товар в інший розділ прямо звідси: у картку заходити
+     не треба, це найчастіша дрібна правка. */
+  const moveTo = async (p: Prod, value: string) => {
+    if (!canEdit) return;
+    setBusy(true);
+    setNotice(null);
+    const { error } = await supabase
+      .from("items")
+      .update({ extra: { ...(p.extra ?? {}), cat: value } })
+      .eq("id", p.id);
+    if (error) setNotice({ kind: "err", text: "Не вдалося перенести: " + error.message });
+    else {
+      setProds((all) => all.map((x) => (x.id === p.id ? { ...x, extra: { ...x.extra, cat: value } } : x)));
+      setNotice({
+        kind: "ok",
+        text: value
+          ? `«${p.title.slice(0, 30)}» тепер у розділі «${cats.find((c) => c.key === value)?.name ?? value}» ✔`
+          : "Розділ прибрано ✔",
+      });
+    }
+    setBusy(false);
   };
 
   const prodTitle = (id: number) => prods.find((p) => p.id === id)?.title ?? "товар " + id;
@@ -428,6 +474,23 @@ export default function StockAdmin({
         </div>
         {open && (
           <div className="szbox">
+            {cats.length > 0 && (
+              <div className="szr szr--move">
+                <b className="szr__sz">Розділ</b>
+                <select
+                  className="szr__sel"
+                  value={String(p.extra?.["cat"] ?? "")}
+                  disabled={busy || !canEdit}
+                  onChange={(e) => moveTo(p, e.target.value)}
+                >
+                  <option value="">без розділу</option>
+                  {cats.map((c) => (
+                    <option key={c.key} value={c.key}>{c.name}</option>
+                  ))}
+                </select>
+                <span className="note">перенести в інший розділ каталогу</span>
+              </div>
+            )}
             {list.length === 0 && (
               <p className="note">
                 У товару не вказані розміри — додайте їх у картці товару, і вони зʼявляться тут.
@@ -475,10 +538,11 @@ export default function StockAdmin({
           «Замовлення».
         </p>
         <p className="note">
-          <b>Новий товар спершу створюють у «Каталог і розпродаж»</b> — там назва, ціна, фото
-          й розміри. Щойно в картці вказані розміри, вони самі зʼявляться тут із нулем, і
-          лишиться проставити кількість. Доки вона нульова, товар показується на сайті як
-          «Немає» — тож не забувайте про цей другий крок.
+          <b>Тут усе про товар в одному місці:</b> «Додати товар» заводить нову картку,
+          «Картка» відкриває назву, ціну, фото й опис, а розділ каталогу міняється
+          вибором прямо в розкритому товарі. Щойно в картці вказані розміри, вони
+          зʼявляться тут із нулем — лишиться проставити кількість. Доки вона нульова,
+          товар показується на сайті як «Немає».
         </p>
 
         <div className="search">
@@ -496,6 +560,41 @@ export default function StockAdmin({
             </button>
           )}
         </div>
+
+        {cats.length > 0 && (
+          <div className="groups">
+            <span className="groups__l">Розділ:</span>
+            <div className="groups__row">
+              <button className={"chip" + (cat === "" ? " chip--on" : "")} onClick={() => { setCat(""); setShown(25); }}>
+                Усі <i>{prods.length}</i>
+              </button>
+              {cats.map((c) => {
+                const n = prods.filter((p) => String(p.extra?.["cat"] ?? "") === c.key).length;
+                return (
+                  <button
+                    key={c.key}
+                    className={"chip" + (cat === c.key ? " chip--on" : "")}
+                    onClick={() => { setCat(c.key); setShown(25); }}
+                  >
+                    {c.name} <i>{n}</i>
+                  </button>
+                );
+              })}
+              {(() => {
+                const n = prods.filter((p) => !String(p.extra?.["cat"] ?? "").trim()).length;
+                if (!n) return null;
+                return (
+                  <button
+                    className={"chip" + (cat === "__none" ? " chip--on" : "")}
+                    onClick={() => { setCat("__none"); setShown(25); }}
+                  >
+                    Без розділу <i>{n}</i>
+                  </button>
+                );
+              })()}
+            </div>
+          </div>
+        )}
 
         <div className="groups__row">
           {([
@@ -523,6 +622,21 @@ export default function StockAdmin({
             Оновити
           </button>
         </div>
+
+        {onAdd && (
+          <div className="addbar">
+            <button
+              className="btn btn--primary btn--sm"
+              disabled={busy || !canEdit}
+              onClick={onAdd}
+            >
+              + Додати товар
+            </button>
+            <span className="note">
+              {list.length} {list.length === 1 ? "товар" : list.length < 5 ? "товари" : "товарів"}
+            </span>
+          </div>
+        )}
 
         {notice && <div className={`status status--${notice.kind}`}>{notice.text}</div>}
         {loading && <p className="note">Завантажую склад…</p>}
