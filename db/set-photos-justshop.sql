@@ -1,5 +1,5 @@
 -- ============================================================
---  Just shop: фото товарів, знайдені за артикулом (416 шт)
+--  Just shop: фото товарів, знайдені за артикулом (421 шт)
 --  Файли лежать у репозиторії сайту: img/p/<артикул>.webp
 --  Ставимо посилання лише тим товарам, у яких фото ще немає,
 --  щоб не затерти те, що власник завантажив сам.
@@ -422,7 +422,12 @@ from (values
   (1637, 'https://arikpromax.github.io/justshop/img/p/HJ0062-010.webp'),
   (987, 'https://arikpromax.github.io/justshop/img/p/HF9329-222.webp'),
   (1506, 'https://arikpromax.github.io/justshop/img/p/FV7116-133.webp'),
-  (1507, 'https://arikpromax.github.io/justshop/img/p/FV7116-045.webp')
+  (1507, 'https://arikpromax.github.io/justshop/img/p/FV7116-045.webp'),
+  (1647, 'https://arikpromax.github.io/justshop/img/p/HF0546-010.webp'),
+  (1646, 'https://arikpromax.github.io/justshop/img/p/HF0546-011.webp'),
+  (1199, 'https://arikpromax.github.io/justshop/img/p/FQ3005-410.webp'),
+  (1529, 'https://arikpromax.github.io/justshop/img/p/61.99025.webp'),
+  (1564, 'https://arikpromax.github.io/justshop/img/p/3WE10053107.webp')
 ) as v(id, url)
 where i.id = v.id and i.site_id = 106 and coalesce(i.image_url, '') = '';
 
