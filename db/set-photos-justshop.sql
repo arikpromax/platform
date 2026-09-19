@@ -1,5 +1,5 @@
 -- ============================================================
---  Just shop: фото товарів, знайдені за артикулом (377 шт)
+--  Just shop: фото товарів, знайдені за артикулом (416 шт)
 --  Файли лежать у репозиторії сайту: img/p/<артикул>.webp
 --  Ставимо посилання лише тим товарам, у яких фото ще немає,
 --  щоб не затерти те, що власник завантажив сам.
@@ -383,7 +383,46 @@ from (values
   (1429, 'https://arikpromax.github.io/justshop/img/p/DX0502-063.webp'),
   (1441, 'https://arikpromax.github.io/justshop/img/p/IF4261-222.webp'),
   (1531, 'https://arikpromax.github.io/justshop/img/p/DV9340-010.webp'),
-  (1605, 'https://arikpromax.github.io/justshop/img/p/HQ0692-100.webp')
+  (1605, 'https://arikpromax.github.io/justshop/img/p/HQ0692-100.webp'),
+  (942, 'https://arikpromax.github.io/justshop/img/p/HM0170-010.webp'),
+  (983, 'https://arikpromax.github.io/justshop/img/p/DM1402-010.webp'),
+  (1095, 'https://arikpromax.github.io/justshop/img/p/BV2721-063.webp'),
+  (1147, 'https://arikpromax.github.io/justshop/img/p/DV8434-010.webp'),
+  (1242, 'https://arikpromax.github.io/justshop/img/p/HF0186-010.webp'),
+  (1417, 'https://arikpromax.github.io/justshop/img/p/AR4997-100.webp'),
+  (1427, 'https://arikpromax.github.io/justshop/img/p/FB8171-010.webp'),
+  (1497, 'https://arikpromax.github.io/justshop/img/p/SX7676-100.webp'),
+  (1628, 'https://arikpromax.github.io/justshop/img/p/IB3003-485.webp'),
+  (941, 'https://arikpromax.github.io/justshop/img/p/HM0167-010.webp'),
+  (989, 'https://arikpromax.github.io/justshop/img/p/HQ5654-687.webp'),
+  (1017, 'https://arikpromax.github.io/justshop/img/p/FD7545-013.webp'),
+  (1026, 'https://arikpromax.github.io/justshop/img/p/FN5840-084.webp'),
+  (1039, 'https://arikpromax.github.io/justshop/img/p/DV1439-010.webp'),
+  (1041, 'https://arikpromax.github.io/justshop/img/p/HM7131-133.webp'),
+  (1073, 'https://arikpromax.github.io/justshop/img/p/IB8413-010.webp'),
+  (1105, 'https://arikpromax.github.io/justshop/img/p/FJ2708-001.webp'),
+  (1119, 'https://arikpromax.github.io/justshop/img/p/HJ0586-010.webp'),
+  (1209, 'https://arikpromax.github.io/justshop/img/p/MA9155-023.webp'),
+  (1259, 'https://arikpromax.github.io/justshop/img/p/DJ3624-001.webp'),
+  (1299, 'https://arikpromax.github.io/justshop/img/p/IM6537-355.webp'),
+  (1300, 'https://arikpromax.github.io/justshop/img/p/IM6540-355.webp'),
+  (1412, 'https://arikpromax.github.io/justshop/img/p/IB3130-485.webp'),
+  (1433, 'https://arikpromax.github.io/justshop/img/p/DV8056-010.webp'),
+  (1444, 'https://arikpromax.github.io/justshop/img/p/HM8241-297.webp'),
+  (1455, 'https://arikpromax.github.io/justshop/img/p/HV5095-062.webp'),
+  (1458, 'https://arikpromax.github.io/justshop/img/p/HM5774-638.webp'),
+  (1521, 'https://arikpromax.github.io/justshop/img/p/IF1411-470.webp'),
+  (1528, 'https://arikpromax.github.io/justshop/img/p/HF9910-410.webp'),
+  (1532, 'https://arikpromax.github.io/justshop/img/p/HJ0062-823.webp'),
+  (1539, 'https://arikpromax.github.io/justshop/img/p/DD4746-010.webp'),
+  (1579, 'https://arikpromax.github.io/justshop/img/p/HJ0774-100.webp'),
+  (1612, 'https://arikpromax.github.io/justshop/img/p/FB7908-010.webp'),
+  (1630, 'https://arikpromax.github.io/justshop/img/p/HV6228-100.webp'),
+  (1631, 'https://arikpromax.github.io/justshop/img/p/HV6228-010.webp'),
+  (1637, 'https://arikpromax.github.io/justshop/img/p/HJ0062-010.webp'),
+  (987, 'https://arikpromax.github.io/justshop/img/p/HF9329-222.webp'),
+  (1506, 'https://arikpromax.github.io/justshop/img/p/FV7116-133.webp'),
+  (1507, 'https://arikpromax.github.io/justshop/img/p/FV7116-045.webp')
 ) as v(id, url)
 where i.id = v.id and i.site_id = 106 and coalesce(i.image_url, '') = '';
 
