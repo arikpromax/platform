@@ -1,5 +1,5 @@
 -- ============================================================
---  Just shop: фото товарів, знайдені за артикулом (349 шт)
+--  Just shop: фото товарів, знайдені за артикулом (368 шт)
 --  Файли лежать у репозиторії сайту: img/p/<артикул>.webp
 --  Ставимо посилання лише тим товарам, у яких фото ще немає,
 --  щоб не затерти те, що власник завантажив сам.
@@ -355,7 +355,26 @@ from (values
   (1633, 'https://arikpromax.github.io/justshop/img/p/IR1610-008.webp'),
   (1640, 'https://arikpromax.github.io/justshop/img/p/IB3003-673.webp'),
   (1090, 'https://arikpromax.github.io/justshop/img/p/AR2382-010.webp'),
-  (1271, 'https://arikpromax.github.io/justshop/img/p/SX7556-100.webp')
+  (1271, 'https://arikpromax.github.io/justshop/img/p/SX7556-100.webp'),
+  (1361, 'https://arikpromax.github.io/justshop/img/p/HM7151-065.webp'),
+  (1362, 'https://arikpromax.github.io/justshop/img/p/HM7158-065.webp'),
+  (1396, 'https://arikpromax.github.io/justshop/img/p/IB3134-010.webp'),
+  (1410, 'https://arikpromax.github.io/justshop/img/p/IF5619-100.webp'),
+  (1443, 'https://arikpromax.github.io/justshop/img/p/HM7151-297.webp'),
+  (1535, 'https://arikpromax.github.io/justshop/img/p/HV0424-010.webp'),
+  (1621, 'https://arikpromax.github.io/justshop/img/p/IH1359-010.webp'),
+  (1498, 'https://arikpromax.github.io/justshop/img/p/IB3003-010.webp'),
+  (959, 'https://arikpromax.github.io/justshop/img/p/FB7368-010.webp'),
+  (1006, 'https://arikpromax.github.io/justshop/img/p/DR3337-010.webp'),
+  (1194, 'https://arikpromax.github.io/justshop/img/p/DJ6224-010.webp'),
+  (1419, 'https://arikpromax.github.io/justshop/img/p/IB5673-010.webp'),
+  (1420, 'https://arikpromax.github.io/justshop/img/p/FN7663-063.webp'),
+  (1454, 'https://arikpromax.github.io/justshop/img/p/FQ0408-104.webp'),
+  (1457, 'https://arikpromax.github.io/justshop/img/p/HM5774-491.webp'),
+  (1461, 'https://arikpromax.github.io/justshop/img/p/HJ1985-010.webp'),
+  (1508, 'https://arikpromax.github.io/justshop/img/p/FN4649-436.webp'),
+  (1607, 'https://arikpromax.github.io/justshop/img/p/HM5762-370.webp'),
+  (1627, 'https://arikpromax.github.io/justshop/img/p/DC5356-010.webp')
 ) as v(id, url)
 where i.id = v.id and i.site_id = 106 and coalesce(i.image_url, '') = '';
 
