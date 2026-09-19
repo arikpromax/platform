@@ -1,5 +1,5 @@
 -- ============================================================
---  Just shop: фото товарів, знайдені за артикулом (368 шт)
+--  Just shop: фото товарів, знайдені за артикулом (377 шт)
 --  Файли лежать у репозиторії сайту: img/p/<артикул>.webp
 --  Ставимо посилання лише тим товарам, у яких фото ще немає,
 --  щоб не затерти те, що власник завантажив сам.
@@ -374,7 +374,16 @@ from (values
   (1461, 'https://arikpromax.github.io/justshop/img/p/HJ1985-010.webp'),
   (1508, 'https://arikpromax.github.io/justshop/img/p/FN4649-436.webp'),
   (1607, 'https://arikpromax.github.io/justshop/img/p/HM5762-370.webp'),
-  (1627, 'https://arikpromax.github.io/justshop/img/p/DC5356-010.webp')
+  (1627, 'https://arikpromax.github.io/justshop/img/p/DC5356-010.webp'),
+  (981, 'https://arikpromax.github.io/justshop/img/p/HV2346-010.webp'),
+  (1193, 'https://arikpromax.github.io/justshop/img/p/LM9047-023.webp'),
+  (1273, 'https://arikpromax.github.io/justshop/img/p/DH6170-902.webp'),
+  (1284, 'https://arikpromax.github.io/justshop/img/p/MA0924-K5X.webp'),
+  (1428, 'https://arikpromax.github.io/justshop/img/p/DX0502-010.webp'),
+  (1429, 'https://arikpromax.github.io/justshop/img/p/DX0502-063.webp'),
+  (1441, 'https://arikpromax.github.io/justshop/img/p/IF4261-222.webp'),
+  (1531, 'https://arikpromax.github.io/justshop/img/p/DV9340-010.webp'),
+  (1605, 'https://arikpromax.github.io/justshop/img/p/HQ0692-100.webp')
 ) as v(id, url)
 where i.id = v.id and i.site_id = 106 and coalesce(i.image_url, '') = '';
 
