@@ -710,6 +710,21 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
         </div>
       )}
 
+      {!col.noAdd && (
+        <div className="addbar">
+          <button
+            className="btn btn--primary btn--sm"
+            disabled={!canEdit || !!editing}
+            onClick={() => startEdit(col, newItem())}
+          >
+            {gVal ? `+ Додати у «${gName}»` : "+ Додати"}
+          </button>
+          <span className="note">
+            {list.length} {list.length === 1 ? "картка" : list.length < 5 ? "картки" : "карток"}
+          </span>
+        </div>
+      )}
+
       {list.length === 0 && (
         <p className="note">
           {gVal ? `У розділі «${gName}» поки порожньо — додайте першу картку.` : "Тут поки порожньо — додайте першу картку."}
@@ -824,15 +839,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
           </div>
         </div>
       ))}
-      {!editing && !col.noAdd && (
-        <button
-          className="btn btn--primary"
-          disabled={!canEdit}
-          onClick={() => startEdit(col, newItem())}
-        >
-          {gVal ? `+ Додати у «${gName}»` : "+ Додати"}
-        </button>
-      )}
+
     </>
     );
   };
@@ -1158,7 +1165,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
 
             <h4>3. Додати, видалити, поміняти місцями</h4>
             <ul>
-              <li>Додати нову картку: кнопка <span className="kbd">+ Додати</span> під списком</li>
+              <li>Додати нову картку: кнопка <span className="kbd">+ Додати</span> над списком — вона лишається на екрані, поки гортаєте</li>
               <li>Видалити: усередині <span className="kbd">Редагувати</span>, внизу — <span className="kbd">Видалити</span></li>
               <li>
                 Порядок: перетягніть картку мишею на потрібне місце. З телефона —
