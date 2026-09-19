@@ -294,3 +294,22 @@ body{
 .help ul{padding-left:20px;margin:4px 0}
 .help .kbd{background:var(--cyan-tint);color:var(--teal-ink);border-radius:6px;padding:1px 8px;font-weight:700;font-size:.86em;white-space:nowrap}
 .help__close{margin-top:20px}
+
+/* ---------- Склад ---------- */
+.pill--warn{background:var(--warn-bg);color:var(--warn-ink)}
+.szbox{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:0 0 12px;background:rgba(120,140,170,.04)}
+.szr{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid var(--line)}
+.szr:last-of-type{border-bottom:0}
+.szr__sz{min-width:64px;font-weight:800}
+.szr__q{color:var(--muted);font-size:.9rem}
+.szr__q i{font-style:normal;color:var(--warn-ink)}
+.szr__act{display:flex;align-items:center;gap:6px;margin-left:auto}
+.szr__n{width:78px;padding:7px 10px;border:1.5px solid var(--line);border-radius:10px;
+  font-family:inherit;font-size:.88rem;background:#fff}
+.szr__n:focus{outline:0;border-color:var(--teal)}
+.delta{font-weight:800}
+.delta--up{color:var(--teal-ink)}
+.delta--dn{color:var(--err-ink)}
+.ordc{margin:10px 0 4px;font-size:.9rem}
+.ordc p{margin:2px 0}
+.ordc span{color:var(--muted)}

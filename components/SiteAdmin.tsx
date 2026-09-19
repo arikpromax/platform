@@ -12,6 +12,8 @@ import {
   type Site,
 } from "@/lib/supabase";
 import ItemForm, { type Option } from "@/components/ItemForm";
+import StockAdmin from "@/components/StockAdmin";
+import OrdersAdmin from "@/components/OrdersAdmin";
 
 type Notice = { kind: "ok" | "err"; text: string } | null;
 
@@ -92,6 +94,11 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
   const textDefs = site.config?.texts ?? [];
   const sections: SectionDef[] = site.config?.sections ?? [];
   const useSections = sections.length > 0;
+  // Склад умикається прапорцем у конфігу сайту: магазину одягу він потрібен,
+  // суші-барові — ні, тому вкладки зʼявляються не всім.
+  const hasStock = Boolean(site.config?.stock);
+  const stockIdx = sections.length; // вкладки складу йдуть після розділів сайту
+  const ordersIdx = sections.length + 1;
   const paidActive = site.paid_until >= todayISO();
   const canEdit = isAdmin || paidActive;
 
@@ -927,15 +934,35 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
       {/* ---------- Вкладки ---------- */}
       <div className="tabs">
         {useSections
-          ? sections.map((s, i) => (
-              <button
-                key={s.name}
-                className={`tab${secIdx === i ? " on" : ""}`}
-                onClick={() => setSecIdx(i)}
-              >
-                {i + 1}. {s.name}
-              </button>
-            ))
+          ? (
+            <>
+              {sections.map((s, i) => (
+                <button
+                  key={s.name}
+                  className={`tab${secIdx === i ? " on" : ""}`}
+                  onClick={() => setSecIdx(i)}
+                >
+                  {i + 1}. {s.name}
+                </button>
+              ))}
+              {hasStock && (
+                <>
+                  <button
+                    className={`tab${secIdx === stockIdx ? " on" : ""}`}
+                    onClick={() => setSecIdx(stockIdx)}
+                  >
+                    Склад
+                  </button>
+                  <button
+                    className={`tab${secIdx === ordersIdx ? " on" : ""}`}
+                    onClick={() => setSecIdx(ordersIdx)}
+                  >
+                    Замовлення
+                  </button>
+                </>
+              )}
+            </>
+          )
           : (
             <>
               {collections.map((c) => (
@@ -954,6 +981,22 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
                 >
                   Тексти
                 </button>
+              )}
+              {hasStock && (
+                <>
+                  <button
+                    className={`tab${tab === "__stock" ? " on" : ""}`}
+                    onClick={() => setTab("__stock")}
+                  >
+                    Склад
+                  </button>
+                  <button
+                    className={`tab${tab === "__orders" ? " on" : ""}`}
+                    onClick={() => setTab("__orders")}
+                  >
+                    Замовлення
+                  </button>
+                </>
               )}
             </>
           )}
@@ -1036,6 +1079,14 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
             );
           })()}
         </>
+      )}
+
+      {/* ---------- Склад і замовлення ---------- */}
+      {hasStock && (useSections ? secIdx === stockIdx : tab === "__stock") && (
+        <StockAdmin site={site} canEdit={canEdit} />
+      )}
+      {hasStock && (useSections ? secIdx === ordersIdx : tab === "__orders") && (
+        <OrdersAdmin site={site} canEdit={canEdit} />
       )}
 
       {/* ---------- Класичний режим ---------- */}

@@ -64,7 +64,16 @@ export type SectionDef = {
   collections?: string[]; // ключі колекцій цього блока
   photos?: string[]; // слоти фото сайту (extra.slot) цього блока
 };
-export type SiteConfig = { collections: CollectionDef[]; texts: TextDef[]; sections?: SectionDef[] };
+export type SiteConfig = {
+  collections: CollectionDef[];
+  texts: TextDef[];
+  sections?: SectionDef[];
+  // true — у адмінці зʼявляються вкладки «Склад» і «Замовлення».
+  // Решта полів кажуть, де саме лежать товари й розміри цього сайту.
+  stock?: boolean;
+  stockCollection?: string; // колекція товарів, типово products
+  stockSizes?: string; // поле в extra зі списком розмірів, типово sizes
+};
 
 export type Site = {
   id: number;
@@ -84,6 +93,64 @@ export type Item = {
   image_url: string;
   extra: Record<string, unknown>;
   sort_order: number;
+};
+
+/* ---------- Склад ---------- */
+
+// Залишок однієї позиції: товар у конкретному розмірі (і кольорі).
+// qty — скільки лежить фізично, reserved — скільки відкладено під кошики,
+// тож вільно до продажу завжди qty − reserved.
+export type StockRow = {
+  id: number;
+  site_id: number;
+  item_id: number;
+  size: string;
+  color: string;
+  qty: number;
+  reserved: number;
+  low_at: number; // від скількох показувати «закінчується»
+  updated_at: string;
+};
+
+export type MoveKind = 'in' | 'sale' | 'return' | 'writeoff' | 'fix';
+
+// Рядок історії: що саме сталося із залишком і після чого
+export type StockMove = {
+  id: number;
+  item_id: number;
+  size: string;
+  color: string;
+  kind: MoveKind;
+  delta: number;
+  qty_after: number;
+  note: string;
+  order_ref: string;
+  who: string;
+  at: string;
+};
+
+export type OrderLine = {
+  item_id: number;
+  size?: string;
+  color?: string;
+  qty: number;
+  title?: string;
+  price?: number;
+};
+
+export type OrderStatus = 'new' | 'done' | 'cancelled' | 'returned';
+
+export type Order = {
+  id: number;
+  site_id: number;
+  ref: string;
+  status: OrderStatus;
+  customer: Record<string, unknown>;
+  lines: OrderLine[];
+  total: number;
+  note: string;
+  created_at: string;
+  updated_at: string;
 };
 
 export type Profile = {
