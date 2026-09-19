@@ -307,6 +307,8 @@ body{
 .szr__n{width:78px;padding:7px 10px;border:1.5px solid var(--line);border-radius:10px;
   font-family:inherit;font-size:.88rem;background:#fff}
 .szr__n:focus{outline:0;border-color:var(--teal)}
+.szr--add{gap:8px;padding-top:12px;border-bottom:0}
+.szr__n--wide{width:132px}
 .delta{font-weight:800}
 .delta--up{color:var(--teal-ink)}
 .delta--dn{color:var(--err-ink)}

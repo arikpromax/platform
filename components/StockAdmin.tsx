@@ -36,6 +36,23 @@ const ERR: Record<string, string> = {
 };
 
 const norm = (s: string) => String(s ?? "").toLowerCase().replace(/[’ʼ`´']/g, "'");
+
+/* Порядок розмірів як на сайті. Абетка тут не годиться: вона ставить
+   L перед M, а 5 перед 44. */
+const WEAR = ["XS", "S", "S-M", "M", "L", "L-XL", "XL", "XXL", "XXXL"];
+const szRank = (s: string): [number, number] => {
+  const u = s.trim().toUpperCase();
+  const w = WEAR.indexOf(u);
+  if (w >= 0) return [0, w];
+  const n = parseFloat(u.replace(",", "."));
+  if (!Number.isNaN(n)) return [1, n];
+  return [2, 0];
+};
+const szCmp = (a: string, b: string) => {
+  const x = szRank(a);
+  const y = szRank(b);
+  return x[0] - y[0] || x[1] - y[1] || a.localeCompare(b, "uk", { numeric: true });
+};
 const fmtWhen = (iso: string) => {
   const d = new Date(iso);
   const p = (n: number) => String(n).padStart(2, "0");
@@ -57,6 +74,7 @@ export default function StockAdmin({ site, canEdit }: { site: Site; canEdit: boo
   const [openId, setOpenId] = useState<number | null>(null);
   const [shown, setShown] = useState(25);
   const [draft, setDraft] = useState<Record<string, string>>({}); // «поставити рівно» по кожному розміру
+  const [newSz, setNewSz] = useState<Record<number, string>>({}); // поле «новий розмір» по товару
 
   /* ---------- Завантаження ----------
      Позицій складу буває більше за тисячу, а база віддає максимум
@@ -155,7 +173,7 @@ export default function StockAdmin({ site, canEdit }: { site: Site; canEdit: boo
       list.push(r);
       m.set(r.item_id, list);
     });
-    m.forEach((list) => list.sort((a, b) => a.size.localeCompare(b.size, "uk", { numeric: true })));
+    m.forEach((list) => list.sort((a, b) => szCmp(a.size, b.size)));
     return m;
   }, [rows]);
 
@@ -238,6 +256,55 @@ export default function StockAdmin({ site, canEdit }: { site: Site; canEdit: boo
     setBusy(false);
   };
 
+  /* Розмір заводиться й прибирається разом із карткою товару: у базі за це
+     відповідають функції, бо треба і рядок складу, і список розмірів,
+     який читає сайт. */
+  const call = async (fn: string, args: Record<string, unknown>, itemId: number, okText: string) => {
+    setBusy(true);
+    setNotice(null);
+    const { data, error } = await supabase.rpc(fn, args);
+    const res = (data ?? {}) as { ok?: boolean; error?: string; left?: number };
+    if (error)
+      setNotice({
+        kind: "err",
+        text: /function|schema cache/i.test(error.message)
+          ? "Спершу виконайте migration-stock-sizes.sql у базі."
+          : "Не вдалося: " + error.message,
+      });
+    else if (!res.ok)
+      setNotice({
+        kind: "err",
+        text:
+          res.error === "reserved"
+            ? `Цей розмір зараз відкладений під чийсь кошик (${res.left ?? 0}). Спробуйте за 15 хвилин.`
+            : res.error === "size"
+              ? "Вкажіть розмір."
+              : (ERR[res.error ?? ""] ?? "Не вдалося."),
+      });
+    else {
+      await after(itemId);
+      setNotice({ kind: "ok", text: okText });
+    }
+    setBusy(false);
+  };
+
+  const addSize = async (p: Prod) => {
+    const size = (newSz[p.id] ?? "").trim();
+    if (!canEdit || !size) return;
+    await call("stock_add_size", { p_item: p.id, p_size: size }, p.id, `Розмір ${size} додано ✔`);
+    setNewSz((v) => ({ ...v, [p.id]: "" }));
+  };
+
+  const dropSize = async (p: Prod, r: StockRow) => {
+    if (!canEdit) return;
+    const warn =
+      r.qty > 0
+        ? `Прибрати розмір ${r.size}? На складі ще ${r.qty} — вони підуть у списання.`
+        : `Прибрати розмір ${r.size}?`;
+    if (!window.confirm(warn)) return;
+    await call("stock_drop_size", { p_item: p.id, p_size: r.size }, p.id, `Розмір ${r.size} прибрано ✔`);
+  };
+
   // «Поставити рівно N»: рахуємо різницю самі, у історію йде «виправлення»
   const setExact = async (r: StockRow, value: string) => {
     const n = Math.max(0, Math.round(Number(value.replace(",", "."))));
@@ -298,6 +365,14 @@ export default function StockAdmin({ site, canEdit }: { site: Site; canEdit: boo
               setDraft((d) => ({ ...d, [key]: "" }));
             }}
           />
+          <button
+            className="btn btn--ghost btn--sm btn--icon"
+            title="Прибрати цей розмір"
+            disabled={busy || !canEdit}
+            onClick={() => dropSize(p, r)}
+          >
+            ×
+          </button>
         </span>
       </div>
     );
@@ -340,9 +415,30 @@ export default function StockAdmin({ site, canEdit }: { site: Site; canEdit: boo
               </p>
             )}
             {list.map((r) => sizeRow(p, r))}
+            <div className="szr szr--add">
+              <input
+                className="szr__n szr__n--wide"
+                placeholder="новий розмір"
+                value={newSz[p.id] ?? ""}
+                disabled={busy || !canEdit}
+                onChange={(e) => setNewSz((v) => ({ ...v, [p.id]: e.target.value }))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") addSize(p);
+                }}
+              />
+              <button
+                className="btn btn--ghost btn--sm"
+                disabled={busy || !canEdit || !(newSz[p.id] ?? "").trim()}
+                onClick={() => addSize(p)}
+              >
+                Додати розмір
+              </button>
+            </div>
             <p className="note">
               «−» списує одну одиницю, «+» приймає одну. У поле «рівно» впишіть, скільки
               насправді лежить на складі, — різниця піде в історію як виправлення.
+              Новий розмір одразу зʼявляється і в картці товару, а «×» прибирає його
+              звідусіль.
             </p>
           </div>
         )}
