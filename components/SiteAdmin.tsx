@@ -109,7 +109,8 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
   /* ---------- Стан ---------- */
 
   const [tab, setTab] = useState<string>(collections[0]?.key ?? "__texts"); // класичний режим
-  const [secIdx, setSecIdx] = useState(0); // режим розділів
+  // магазин відкривається на складі, звичайний сайт — на першому розділі
+  const [secIdx, setSecIdx] = useState(() => (site.config?.stock ? (site.config?.sections ?? []).length : 0));
   const [items, setItems] = useState<Item[]>([]); // класичний режим: активна колекція
   const [itemsByCol, setItemsByCol] = useState<Record<string, Item[]>>({}); // режим розділів
   const [texts, setTexts] = useState<Record<string, string>>({});
@@ -125,6 +126,9 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [q, setQ] = useState("");
   const [searchPool, setSearchPool] = useState<Item[] | null>(null); // кеш усіх карток сайту
+  // Залишки для пігулок у списку товарів: {номер товару: скільки вільно}
+  const [stockBy, setStockBy] = useState<Record<number, { qty: number; low: boolean }> | null>(null);
+  const [saveTick, setSaveTick] = useState(0); // після правки картки склад перечитується
   const pendingRef = useRef<(() => void) | null>(null); // дія після переходу з пошуку
 
   const activeCol = colByKey(tab) ?? null; // класичний режим
@@ -240,6 +244,39 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
 
   const reload = useSections ? loadSection : loadItems;
 
+  /* Залишки тягнемо один раз на вкладку, де є товари: у списку вони
+     потрібні лише як пігулка, тож беремо мінімум полів. */
+  const stockCol = site.config?.stockCollection ?? "products";
+  const needStock =
+    hasStock &&
+    (useSections ? (activeSec?.collections ?? []).includes(stockCol) : tab === stockCol);
+
+  useEffect(() => {
+    if (!needStock) return;
+    let alive = true;
+    (async () => {
+      const acc: Record<number, { qty: number; low: boolean }> = {};
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase
+          .from("stock")
+          .select("item_id,qty,reserved,low_at")
+          .eq("site_id", site.id)
+          .range(from, from + 999);
+        if (error || !data) break;
+        (data as { item_id: number; qty: number; reserved: number; low_at: number }[]).forEach((r) => {
+          const free = Math.max(0, r.qty - r.reserved);
+          const cur = acc[r.item_id] ?? { qty: 0, low: false };
+          acc[r.item_id] = { qty: cur.qty + free, low: cur.low || (free > 0 && free <= r.low_at) };
+        });
+        if (data.length < 1000) break;
+      }
+      if (alive) setStockBy(acc);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [needStock, supabase, site.id, saveTick]);
+
   /* ---------- Дії з картками ---------- */
 
   const startEdit = async (col: CollectionDef, item: Item) => {
@@ -270,6 +307,15 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
     setSelOptions(opts);
     setEditingCol(col);
     setEditing(item);
+  };
+
+  /* Зі складу теж має відкриватись картка товару: інакше, щоб змінити
+     ціну побаченого там товару, довелось би шукати його в каталозі. */
+  const openCard = async (itemId: number) => {
+    const col = collections.find((c) => c.key === stockCol);
+    if (!col) return;
+    const { data } = await supabase.from("items").select("*").eq("id", itemId).single();
+    if (data) await startEdit(col, data as Item);
   };
 
   const emptyItem = (col: CollectionDef): Item => ({
@@ -307,6 +353,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
     if (error) setNotice({ kind: "err", text: "Не вдалося зберегти: " + error.message });
     else {
       setNotice({ kind: "ok", text: "Збережено ✔ На сайті з'явиться протягом хвилини." });
+      setSaveTick((t) => t + 1);
       setEditing(null);
       setEditingCol(null);
       setSearchPool(null); // кеш пошуку оновиться при наступному пошуку
@@ -778,6 +825,15 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
             <span>{rowHint(item, col)}</span>
           </div>
           <div className="row__actions">
+            {hasStock && col.key === stockCol && stockBy && (() => {
+              const st = stockBy[item.id ?? -1];
+              if (!st) return <span className="note">без складу</span>;
+              return (
+                <span className={"pill" + (st.qty === 0 ? " pill--off" : st.low ? " pill--warn" : " pill--ok")}>
+                  {st.qty === 0 ? "немає" : st.low ? "закінчується" : st.qty + " шт"}
+                </span>
+              );
+            })()}
             {col.rowToggle && (() => {
               const t = col.rowToggle!;
               const on = Boolean((item.extra ?? {})[t.flag]);
@@ -943,15 +999,6 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
         {useSections
           ? (
             <>
-              {sections.map((s, i) => (
-                <button
-                  key={s.name}
-                  className={`tab${secIdx === i ? " on" : ""}`}
-                  onClick={() => setSecIdx(i)}
-                >
-                  {i + 1}. {s.name}
-                </button>
-              ))}
               {hasStock && (
                 <>
                   <button
@@ -966,8 +1013,18 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
                   >
                     Замовлення
                   </button>
+                  <span className="tabs__split" aria-hidden="true" />
                 </>
               )}
+              {sections.map((s, i) => (
+                <button
+                  key={s.name}
+                  className={`tab${secIdx === i ? " on" : ""}`}
+                  onClick={() => setSecIdx(i)}
+                >
+                  {i + 1}. {s.name}
+                </button>
+              ))}
             </>
           )
           : (
@@ -1090,7 +1147,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
 
       {/* ---------- Склад і замовлення ---------- */}
       {hasStock && (useSections ? secIdx === stockIdx : tab === "__stock") && (
-        <StockAdmin site={site} canEdit={canEdit} />
+        <StockAdmin key={"stock" + saveTick} site={site} canEdit={canEdit} onEdit={openCard} />
       )}
       {hasStock && (useSections ? secIdx === ordersIdx : tab === "__orders") && (
         <OrdersAdmin site={site} canEdit={canEdit} />

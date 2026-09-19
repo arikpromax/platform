@@ -59,7 +59,16 @@ const fmtWhen = (iso: string) => {
   return `${p(d.getDate())}.${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
 };
 
-export default function StockAdmin({ site, canEdit }: { site: Site; canEdit: boolean }) {
+export default function StockAdmin({
+  site,
+  canEdit,
+  onEdit,
+}: {
+  site: Site;
+  canEdit: boolean;
+  // відкриває картку товару в тій самій формі, що й каталог
+  onEdit?: (itemId: number) => void;
+}) {
   const supabase = getSupabase()!;
   const colKey = site.config?.stockCollection ?? "products";
 
@@ -402,6 +411,16 @@ export default function StockAdmin({ site, canEdit }: { site: Site; canEdit: boo
               {state === "out" ? "немає" : state === "low" ? "закінчується" : total + " шт"}
             </span>
             {held > 0 && <span className="note">{held} відкладено</span>}
+            {onEdit && (
+              <button
+                className="btn btn--ghost btn--sm"
+                title="Назва, ціна, фото, категорія"
+                disabled={busy || !canEdit}
+                onClick={() => onEdit(p.id)}
+              >
+                Картка
+              </button>
+            )}
             <button className="btn btn--ghost btn--sm" onClick={() => setOpenId(open ? null : p.id)}>
               {open ? "Згорнути" : "Залишки"}
             </button>

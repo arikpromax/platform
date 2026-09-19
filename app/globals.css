@@ -60,6 +60,9 @@ body{
   padding:22px;box-shadow:var(--shadow);margin-bottom:14px}
 /* Смужка з «+ Додати»: липне до верху, поки гортаєш список.
    Відʼємні поля — щоб під нею нічого не проглядало з боків картки. */
+/* Риска між щоденною роботою (склад, замовлення) і налаштуваннями сайту */
+.tabs__split{width:1px;align-self:stretch;margin:4px 6px;background:var(--line)}
+@media(max-width:560px){.tabs__split{display:none}}
 .addbar{position:sticky;top:0;z-index:6;display:flex;align-items:center;gap:12px;
   margin:0 -22px 8px;padding:10px 22px;background:var(--surface);
   border-bottom:1px solid var(--line);box-shadow:0 10px 14px -12px rgba(14,34,48,.25)}
