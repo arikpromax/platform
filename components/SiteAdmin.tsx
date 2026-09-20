@@ -461,6 +461,13 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
     setBusy(false);
   };
 
+  // Мініатюра рядка: окреме головне фото або перше зі списку «Фото»
+  const thumbOf = (item: Item): string => {
+    if (item.image_url) return item.image_url;
+    const list = (item.extra ?? {})["photos"];
+    return Array.isArray(list) && typeof list[0] === "string" ? list[0] : "";
+  };
+
   // Короткий підпис картки у списках і результатах пошуку
   const rowHint = (item: Item, col?: CollectionDef): string => {
     const parts: string[] = [];
@@ -821,9 +828,9 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
           }}
           onDragEnd={() => setOverId(null)}
         >
-          {item.image_url ? (
+          {thumbOf(item) ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img className="row__img" src={item.image_url} alt="" />
+            <img className="row__img" src={thumbOf(item)} alt="" />
           ) : (
             <div className="row__img" />
           )}
