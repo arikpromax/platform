@@ -45,13 +45,22 @@ const dbHead = (extra: Record<string, string> = {}) => ({
 
 // deno-lint-ignore no-explicit-any
 async function db(path: string, init: RequestInit = {}): Promise<any> {
-  const r = await fetch(BASE + "/rest/v1/" + path, {
-    ...init,
-    headers: dbHead((init.headers as Record<string, string>) ?? {}),
-  });
-  const text = await r.text();
-  if (!r.ok) throw new Error("db " + r.status + ": " + text.slice(0, 300));
-  return text ? JSON.parse(text) : null;
+  for (let attempt = 0; ; attempt++) {
+    const r = await fetch(BASE + "/rest/v1/" + path, {
+      ...init,
+      headers: dbHead((init.headers as Record<string, string>) ?? {}),
+    });
+    const text = await r.text();
+    // Щойно запущена функція буває на долю секунди «попереду» годинника бази,
+    // і база відповідає «JWT issued in the future» (PGRST303). Це минає саме —
+    // трохи чекаємо й пробуємо ще раз, замість того щоб зривати замовлення.
+    if (r.status === 401 && text.includes("PGRST303") && attempt < 3) {
+      await new Promise((ok) => setTimeout(ok, 1000 * (attempt + 1)));
+      continue;
+    }
+    if (!r.ok) throw new Error("db " + r.status + ": " + text.slice(0, 300));
+    return text ? JSON.parse(text) : null;
+  }
 }
 
 const patchOrder = (id: number, fields: Record<string, unknown>) =>
