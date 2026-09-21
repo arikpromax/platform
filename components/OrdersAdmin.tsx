@@ -47,7 +47,7 @@ const payText = (o: Order) => {
     if (o.pay_state === "failed") return "Карткою на сайті — оплата не пройшла";
     return "Карткою на сайті — ще не оплачено";
   }
-  if (c["payId"] === "cod") return `Наложений платіж — ${money(Number(o.total))} при отриманні`;
+  if (c["payId"] === "cod") return `Накладений платіж — ${money(Number(o.total))} при отриманні`;
   return String(c["pay"] ?? "");
 };
 

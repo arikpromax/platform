@@ -286,7 +286,7 @@ async function ensureTtn(o: Order, force: boolean): Promise<Ttn> {
     } else {
       props.VolumeGeneral = String(Math.round((box.L * box.W * box.H) / 1e6 * 10000) / 10000);
     }
-    // Наложений платіж: звичайний грошовий переказ або «контроль оплати» (за договором з НП)
+    // Накладений платіж: звичайний грошовий переказ або «контроль оплати» (за договором з НП)
     if (c.payId === "cod") {
       if (s.cod_mode === "control") props.AfterpaymentOnGoodsCost = String(total);
       else props.BackwardDeliveryData = [{ PayerType: "Recipient", CargoType: "Money", RedeliveryString: String(total) }];
@@ -384,7 +384,7 @@ function payLine(o: Order) {
     if (o.pay_state === "refunded") return "Оплата: карткою на сайті — <b>гроші повернено</b>";
     return "Оплата: карткою на сайті — <b>ще не оплачено</b>";
   }
-  if (c.payId === "cod") return `Оплата: наложений платіж — ${money(o.total)} при отриманні`;
+  if (c.payId === "cod") return `Оплата: накладений платіж — ${money(o.total)} при отриманні`;
   return `Оплата: ${esc(c.pay)}`;
 }
 
@@ -803,7 +803,7 @@ async function trackOne(o: Order, r: NpDoc, back: boolean) {
   } else if (NP_GOT.includes(code)) {
     upd.np_final = true;
     if (o.status === "new" || o.status === "shipped") await setStatus(o.id, "done");
-    const cod = o.customer?.payId === "cod" ? ` Наложений платіж ${money(o.total)} — Нова Пошта переведе гроші.` : "";
+    const cod = o.customer?.payId === "cod" ? ` Накладений платіж ${money(o.total)} — Нова Пошта переведе гроші.` : "";
     say.push(`✅ ${ref} отримано.${cod}`);
   } else if (NP_BACK.includes(code)) {
     if (!o.np_refused_at) {
