@@ -482,6 +482,8 @@ async function notify(id: number) {
   // Гроші прийшли вже після автоскасування: товар повернули на склад,
   // тож накладну не робимо — власник спершу перевірить наявність.
   const late = o.status === "cancelled";
+  // Тестова оплата LiqPay (sandbox): гроші не рухались, тож і накладну сама не робимо
+  const test = !!o.pay_info?.test;
 
   const token = tokenOf(o.site_id);
   if (!token) {
@@ -497,13 +499,16 @@ async function notify(id: number) {
   }
 
   // Накладну робимо ще до повідомлення — щоб номер ТТН прийшов у тому ж тексті
-  const t: Ttn = late
+  const t: Ttn = late || test
     ? { state: "off" }
     : await ensureTtn(o, false).catch((e) => ({ state: "error", why: String(e) }) as Ttn);
   const text = late
     ? orderText(o, await shopName(o.site_id), t, "⚠️ Оплата після скасування") +
       "\n\nЗамовлення скасувалося, бо оплата йшла довше 10 хвилин, і товар повернувся на склад. " +
       "Перевірте наявність, поверніть замовлення в «Нове» в адмінці й створіть ТТН кнопкою."
+    : test
+    ? orderText(o, await shopName(o.site_id), t, "🧪 ТЕСТОВЕ замовлення") +
+      "\n\nОплата тестова — гроші не списані. ТТН сама не створюється; щоб перевірити накладну, натисніть кнопку."
     : orderText(o, await shopName(o.site_id), t);
   const got_it: number[] = [];
   for (const chat of chats) {
