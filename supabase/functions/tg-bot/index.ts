@@ -1,13 +1,15 @@
-// Telegram-бот замовлень.
+// Telegram-бот замовлень і накладні Нової Пошти.
 //
-// Один файл робить три речі:
-//   ?setup=<site>        — прив'язати бота до цієї функції (вебхук, опис)
-//   POST {order: <id>}   — надіслати нове замовлення всім під'єднаним чатам
-//   POST від Telegram    — /start <код> під'єднує чат, /stop відключає
+// Один файл робить чотири речі:
+//   ?setup=<site>        — прив'язати бота до цієї функції (вебхук, опис, команди)
+//   ?check=<site>        — перевірити, що підключено: токен, ключ НП, відправник
+//   POST {order: <id>}   — нове замовлення: створити ТТН і надіслати все в чати
+//   POST від Telegram    — /start <код>, /stop і кнопки під замовленням
 //
-// Токен бота лежить у Secrets як TG_TOKEN_<номер сайту>, тож у кожного сайту
-// може бути свій бот. База читається службовим ключем, який Supabase сам
-// підкладає функції, — у коді й на сайті його немає.
+// Секрети лежать у Supabase → Edge Functions → Secrets:
+//   TG_TOKEN_<сайт> — токен бота, NP_KEY_<сайт> — ключ Нової Пошти.
+// Без ключа НП бот працює як і раніше, лише пише, що ТТН ще не підключені.
+// Базу функція читає службовим ключем, який Supabase підкладає сам.
 
 const BASE = Deno.env.get("SUPABASE_URL") ?? "";
 const KEY =
@@ -23,6 +25,7 @@ const ADMIN = "https://platform-one-bay.vercel.app";
 const HOOK = BASE + "/functions/v1/tg-bot";
 
 const tokenOf = (site: number) => Deno.env.get("TG_TOKEN_" + site) ?? "";
+const npKeyOf = (site: number) => Deno.env.get("NP_KEY_" + site) ?? "";
 
 /* ---------- база ---------- */
 
@@ -34,7 +37,8 @@ const dbHead = (extra: Record<string, string> = {}) => ({
   ...extra,
 });
 
-async function db(path: string, init: RequestInit = {}) {
+// deno-lint-ignore no-explicit-any
+async function db(path: string, init: RequestInit = {}): Promise<any> {
   const r = await fetch(BASE + "/rest/v1/" + path, {
     ...init,
     headers: dbHead((init.headers as Record<string, string>) ?? {}),
@@ -44,9 +48,13 @@ async function db(path: string, init: RequestInit = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+const patchOrder = (id: number, fields: Record<string, unknown>) =>
+  db(`orders?id=eq.${id}`, { method: "PATCH", body: JSON.stringify(fields) });
+
 /* ---------- Telegram ---------- */
 
-async function tg(token: string, method: string, body: unknown) {
+// deno-lint-ignore no-explicit-any
+async function tg(token: string, method: string, body: unknown): Promise<any> {
   const r = await fetch("https://api.telegram.org/bot" + token + "/" + method, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -55,11 +63,267 @@ async function tg(token: string, method: string, body: unknown) {
   return await r.json().catch(() => ({ ok: false, error_code: r.status }));
 }
 
+async function tgFile(token: string, chat: number, bytes: Uint8Array, name: string, caption: string) {
+  const f = new FormData();
+  f.append("chat_id", String(chat));
+  f.append("document", new Blob([bytes as unknown as BlobPart], { type: "application/pdf" }), name);
+  f.append("caption", caption);
+  const r = await fetch("https://api.telegram.org/bot" + token + "/sendDocument", { method: "POST", body: f });
+  return await r.json().catch(() => ({ ok: false }));
+}
+
 // Пароль, яким Telegram підписує свої запити до нас. Виводимо його з токена,
 // щоб не заводити ще один секрет: хто не знає токена, той не підробить запит.
 async function hookSecret(token: string) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("tg-hook:" + token));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 48);
+}
+
+/* ---------- Нова Пошта ---------- */
+
+// deno-lint-ignore no-explicit-any
+async function np(key: string, model: string, method: string, props: Record<string, unknown>): Promise<any[]> {
+  const r = await fetch("https://api.novaposhta.ua/v2.0/json/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ apiKey: key, modelName: model, calledMethod: method, methodProperties: props }),
+  });
+  const j = await r.json().catch(() => null);
+  if (!j) throw new Error("Нова Пошта не відповіла");
+  if (!j.success) {
+    const why = [...(j.errors ?? []), ...(j.warnings ?? [])].map(String).filter(Boolean)[0];
+    throw new Error(why || "Нова Пошта відмовила без пояснення");
+  }
+  return j.data ?? [];
+}
+
+type NpSet = {
+  site_id: number;
+  auto: boolean;
+  sender_city: string;
+  sender_branch: string;
+  sender_city_ref: string;
+  sender_wh_ref: string;
+  sender_ref: string;
+  sender_contact_ref: string;
+  sender_phone: string;
+  cod_mode: string;
+  description: string;
+};
+
+async function npSettings(site: number): Promise<NpSet | null> {
+  try {
+    const [s] = await db(`np_settings?site_id=eq.${site}&select=*`);
+    return s ?? null;
+  } catch {
+    return null; // таблиці ще немає — значить, накладні не налаштовані
+  }
+}
+
+// Відправник: хто (з кабінету, за ключем) і звідки (місто й номер відділення з налаштувань).
+// Знайдені коди записуємо назад у налаштування, щоб не питати НП щоразу.
+async function sender(key: string, s: NpSet) {
+  const upd: Partial<NpSet> = {};
+  if (!s.sender_ref || !s.sender_contact_ref) {
+    const who = await np(key, "Counterparty", "getCounterparties", { CounterpartyProperty: "Sender", Page: "1" });
+    if (!who[0]) throw new Error("у кабінеті НП немає відправника");
+    const cts = await np(key, "Counterparty", "getCounterpartyContactPersons", { Ref: who[0].Ref, Page: "1" });
+    if (!cts[0]) throw new Error("у кабінеті НП немає контактної особи відправника");
+    upd.sender_ref = who[0].Ref;
+    upd.sender_contact_ref = cts[0].Ref;
+    upd.sender_phone = String(cts[0].Phones ?? "").replace(/\D/g, "");
+  }
+  if (!s.sender_wh_ref) {
+    const no = String(s.sender_branch ?? "").replace(/\D/g, "");
+    if (!s.sender_city || !no) throw new Error("не вказано, з якого відділення відправляєте");
+    const cities = await np(key, "Address", "getCities", { FindByString: s.sender_city.trim(), Limit: "20" });
+    const want = s.sender_city.trim().toLowerCase();
+    const city = cities.find((c) => String(c.Description).toLowerCase() === want) ?? cities[0];
+    if (!city) throw new Error(`не знайшов місто відправлення «${s.sender_city}»`);
+    const whs = await np(key, "AddressGeneral", "getWarehouses", { CityRef: city.Ref, WarehouseId: no, Limit: "50" });
+    const wh = whs.find((w) => String(w.Number) === no) ?? whs[0];
+    if (!wh) throw new Error(`не знайшов відділення №${no} у місті ${city.Description}`);
+    upd.sender_city_ref = city.Ref;
+    upd.sender_wh_ref = wh.Ref;
+  }
+  if (Object.keys(upd).length) {
+    await db(`np_settings?site_id=eq.${s.site_id}`, { method: "PATCH", body: JSON.stringify(upd) });
+    Object.assign(s, upd);
+  }
+  return s;
+}
+
+// Вага й коробка. Точна вага не потрібна: у відділенні посилку все одно зважать
+// і виправлять накладну. Беремо поле товару «Вага, кг», а коли воно порожнє —
+// середнє для категорії разом з упаковкою.
+const CAT_KG: Record<string, number> = {
+  vzuttia: 1.5,
+  kurtky: 1,
+  kostiumy: 1,
+  kofty: 0.7,
+  shtany: 0.7,
+  zhyletky: 0.7,
+  futbolky: 0.3,
+  shorty: 0.3,
+  shkarpetky: 0.2,
+  aksesuary: 0.2,
+};
+
+async function parcel(o: Order) {
+  const ids = [...new Set((o.lines ?? []).map((l) => Number(l.item_id)).filter(Boolean))];
+  const items: { id: number; extra: Record<string, unknown> }[] = ids.length
+    ? await db(`items?id=in.(${ids.join(",")})&select=id,extra`)
+    : [];
+  const by = new Map(items.map((i) => [i.id, i.extra ?? {}]));
+  let kg = 0, shoes = 0, soft = 0;
+  for (const l of o.lines ?? []) {
+    const q = Number(l.qty) || 1;
+    const x = by.get(Number(l.item_id)) ?? {};
+    const own = parseFloat(String(x.weight ?? "").replace(",", "."));
+    const cat = String(x.cat ?? "");
+    kg += (own > 0 ? own : CAT_KG[cat] ?? 0.5) * q;
+    if (cat === "vzuttia") shoes += q;
+    else soft += q;
+  }
+  // Взуття — коробка 36×26, по 14 см на пару; одяг — пакет 30×25, товщає з кожною річчю.
+  const L = shoes ? 36 : 30, W = shoes ? 26 : 25;
+  const H = Math.min(Math.max(shoes * 14 + soft * 4, 5), 60);
+  return { kg: Math.max(0.1, Math.round(kg * 10) / 10), L, W, H };
+}
+
+// Стан накладної для повідомлення й кнопок
+type Ttn =
+  | { state: "made" | "exists" }
+  | { state: "none" }                 // самовивіз — накладна не потрібна
+  | { state: "manual"; why: string }  // кур'єр: адреса вписана текстом
+  | { state: "nokey" }                // Нову Пошту ще не підключили
+  | { state: "off" }                  // автоматичне створення вимкнене
+  | { state: "error"; why: string };
+
+async function ensureTtn(o: Order, force: boolean): Promise<Ttn> {
+  if (o.ttn) return { state: "exists" };
+  const c = o.customer ?? {};
+  const dlv = c.dlv ?? "";
+  if (dlv === "pickup" || (!dlv && /самовивіз/i.test(c.delivery ?? ""))) return { state: "none" };
+  if (dlv === "np_courier") return { state: "manual", why: "курʼєр: адреса вписана текстом" };
+
+  const key = npKeyOf(o.site_id);
+  if (!key) return { state: "nokey" };
+  const s = await npSettings(o.site_id);
+  if (!s) return { state: "nokey" };
+  if (!force && s.auto === false) return { state: "off" };
+
+  try {
+    if (!c.cityRef || !c.branchRef) throw new Error("у замовленні немає кодів міста й відділення НП");
+    const parts = String(c.name ?? "").trim().split(/\s+/).filter(Boolean);
+    if (parts.length < 2) throw new Error("потрібні прізвище та імʼя отримувача");
+    const tel = phone(c.phone).replace(/\D/g, "");
+    if (tel.length !== 12) throw new Error("неправильний телефон отримувача");
+
+    await sender(key, s);
+
+    const [who] = await np(key, "Counterparty", "save", {
+      CounterpartyType: "PrivatePerson",
+      CounterpartyProperty: "Recipient",
+      LastName: parts[0],
+      FirstName: parts[1],
+      MiddleName: parts.slice(2).join(" "),
+      Phone: tel,
+      Email: "",
+    });
+    const contact = who?.ContactPerson?.data?.[0]?.Ref;
+    if (!who?.Ref || !contact) throw new Error("НП не прийняла дані отримувача");
+
+    // Від суми з налаштувань сайту («Безкоштовна доставка від…») доставку платить магазин
+    const [free] = await db(`texts?site_id=eq.${o.site_id}&key=eq.free_from&select=value`);
+    const freeFrom = Number(String(free?.value ?? "").replace(/\D/g, "")) || 0;
+    const total = Math.round(Number(o.total) || 0);
+    const box = await parcel(o);
+    const today = new Date().toLocaleDateString("uk-UA", {
+      timeZone: "Europe/Kyiv",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+
+    const props: Record<string, unknown> = {
+      PayerType: freeFrom && total >= freeFrom ? "Sender" : "Recipient",
+      PaymentMethod: "Cash",
+      DateTime: today,
+      CargoType: "Parcel",
+      ServiceType: "WarehouseWarehouse", // і відділення, і поштомат
+      SeatsAmount: "1",
+      Weight: String(box.kg),
+      Description: s.description || "Одяг та взуття",
+      Cost: String(Math.max(total, 1)),
+      CitySender: s.sender_city_ref,
+      Sender: s.sender_ref,
+      SenderAddress: s.sender_wh_ref,
+      ContactSender: s.sender_contact_ref,
+      SendersPhone: s.sender_phone,
+      CityRecipient: c.cityRef,
+      Recipient: who.Ref,
+      RecipientAddress: c.branchRef,
+      ContactRecipient: contact,
+      RecipientsPhone: tel,
+    };
+    // Поштомат не прийме посилку без розмірів; для відділення вистачає об'єму
+    if (dlv === "np_postomat") {
+      props.OptionsSeat = [{
+        volumetricWidth: String(box.W),
+        volumetricLength: String(box.L),
+        volumetricHeight: String(box.H),
+        volumetricVolume: String(Math.round((box.L * box.W * box.H) / 4000 * 100) / 100),
+        weight: String(box.kg),
+      }];
+    } else {
+      props.VolumeGeneral = String(Math.round((box.L * box.W * box.H) / 1e6 * 10000) / 10000);
+    }
+    // Наложений платіж: звичайний грошовий переказ або «контроль оплати» (за договором з НП)
+    if (c.payId === "cod") {
+      if (s.cod_mode === "control") props.AfterpaymentOnGoodsCost = String(total);
+      else props.BackwardDeliveryData = [{ PayerType: "Recipient", CargoType: "Money", RedeliveryString: String(total) }];
+    }
+
+    const [doc] = await np(key, "InternetDocument", "save", props);
+    if (!doc?.IntDocNumber) throw new Error("НП не повернула номер накладної");
+    o.ttn = String(doc.IntDocNumber);
+    o.ttn_ref = String(doc.Ref);
+    o.ttn_cost = Number(doc.CostOnSite) || null;
+    o.ttn_date = String(doc.EstimatedDeliveryDate ?? "");
+    o.ttn_error = "";
+    await patchOrder(o.id, { ttn: o.ttn, ttn_ref: o.ttn_ref, ttn_cost: o.ttn_cost, ttn_date: o.ttn_date, ttn_error: "" });
+    return { state: "made" };
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    o.ttn_error = why;
+    await patchOrder(o.id, { ttn_error: why }).catch(() => {});
+    return { state: "error", why };
+  }
+}
+
+// PDF-наклейка 100×100. Посилання містить ключ, тому файл забирає сама функція
+// і вже його надсилає в Telegram — ключ назовні не потрапляє.
+async function label(key: string, ref: string): Promise<Uint8Array | null> {
+  for (const path of [`printMarking100x100/orders[]/${ref}/type/pdf`, `printDocument/orders[]/${ref}/type/pdf`]) {
+    try {
+      const r = await fetch(`https://my.novaposhta.ua/orders/${path}/apiKey/${key}`);
+      const bytes = new Uint8Array(await r.arrayBuffer());
+      // справжній PDF починається з «%PDF»
+      if (r.ok && bytes.length > 4 && String.fromCharCode(...bytes.slice(0, 4)) === "%PDF") return bytes;
+    } catch { /* пробуємо наступний вигляд */ }
+  }
+  return null;
+}
+
+async function sendLabel(token: string, o: Order, chats: number[]) {
+  const key = npKeyOf(o.site_id);
+  if (!key || !o.ttn_ref) return;
+  const pdf = await label(key, o.ttn_ref);
+  if (!pdf) return;
+  for (const chat of chats) {
+    await tgFile(token, chat, pdf, `TTN-${o.ttn}.pdf`, `Наклейка до ${o.ref} · ТТН ${o.ttn}`);
+  }
 }
 
 /* ---------- текст замовлення ---------- */
@@ -78,7 +342,7 @@ function phone(raw: unknown) {
   return String(raw ?? "");
 }
 
-type Line = { title?: string; size?: string; qty?: number; price?: number };
+type Line = { item_id?: number; title?: string; size?: string; qty?: number; price?: number };
 type Order = {
   id: number;
   site_id: number;
@@ -87,9 +351,31 @@ type Order = {
   created_at: string;
   customer: Record<string, string>;
   lines: Line[];
+  ttn?: string;
+  ttn_ref?: string;
+  ttn_cost?: number | null;
+  ttn_date?: string;
+  ttn_error?: string;
 };
 
-function orderText(o: Order, shop: string) {
+function ttnLine(o: Order, t: Ttn) {
+  if (o.ttn) {
+    const date = (o.ttn_date ?? "").slice(0, 5); // «23.09.2026» → «23.09»
+    return `<b>ТТН ${esc(o.ttn)}</b>` +
+      (o.ttn_cost ? ` · доставка ${money(o.ttn_cost)}` : "") +
+      (date ? ` · прибуде ${esc(date)}` : "");
+  }
+  switch (t.state) {
+    case "none": return "";
+    case "manual": return `ТТН — вручну: ${esc(t.why)}`;
+    case "nokey": return "ТТН: Нова Пошта ще не підключена";
+    case "off": return "ТТН: створіть кнопкою нижче";
+    case "error": return `⚠️ ТТН не створилась: ${esc(t.why)}`;
+    default: return "";
+  }
+}
+
+function orderText(o: Order, shop: string, t: Ttn, head = "Нове замовлення") {
   const c = o.customer ?? {};
   const when = new Date(o.created_at).toLocaleString("uk-UA", {
     timeZone: "Europe/Kyiv",
@@ -108,8 +394,9 @@ function orderText(o: Order, shop: string) {
     );
   });
   const where = [c.city, c.branch].filter(Boolean).map(esc).join(", ");
+  const ttn = ttnLine(o, t);
   return [
-    `<b>Нове замовлення ${esc(o.ref || "#" + o.id)}</b>`,
+    `<b>${esc(head)} ${esc(o.ref || "#" + o.id)}</b>`,
     `${esc(shop)} · ${when}`,
     "",
     ...items,
@@ -119,6 +406,7 @@ function orderText(o: Order, shop: string) {
     `Доставка: ${esc(c.delivery)}`,
     where ? where : "",
     `Оплата: ${esc(c.pay)}`,
+    ttn ? "\n" + ttn : "",
     "",
     `${esc(c.name)}`,
     phone(c.phone),
@@ -129,12 +417,32 @@ function orderText(o: Order, shop: string) {
     .trim();
 }
 
+// Кнопки під замовленням: що можна зробити з накладною просто з Telegram
+function keys(o: Order, t: Ttn) {
+  const rows: { text: string; callback_data?: string; url?: string }[][] = [];
+  if (o.ttn) {
+    rows.push([
+      { text: "Наклейка PDF", callback_data: `lbl:${o.id}` },
+      { text: "Скасувати ТТН", callback_data: `del:${o.id}` },
+    ]);
+  } else if (t.state === "error" || t.state === "off" || t.state === "nokey") {
+    rows.push([{ text: t.state === "error" ? "Спробувати ще раз" : "Створити ТТН", callback_data: `ttn:${o.id}` }]);
+  }
+  rows.push([{ text: "Відкрити в адмінці", url: ADMIN }]);
+  return { inline_keyboard: rows };
+}
+
+const shopName = async (site: number) => {
+  const [row] = await db(`sites?id=eq.${site}&select=name`);
+  return String(row?.name ?? "");
+};
+
 /* ---------- нове замовлення ---------- */
 
 async function notify(id: number) {
   // Спершу «забираємо» замовлення: якщо його вже хтось надіслав, рядок не повернеться.
   // Так повторний виклик (тригер + підстраховка за розкладом) не дублює повідомлення.
-  const got = await db(`orders?id=eq.${id}&tg_sent_at=is.null&select=id,site_id,ref,total,created_at,customer,lines`, {
+  const got = await db(`orders?id=eq.${id}&tg_sent_at=is.null&select=*`, {
     method: "PATCH",
     headers: { Prefer: "return=representation" },
     body: JSON.stringify({ tg_sent_at: new Date().toISOString() }),
@@ -142,65 +450,172 @@ async function notify(id: number) {
   const o: Order | undefined = got?.[0];
   if (!o) return { ok: true, skipped: "already sent or no such order" };
 
-  const release = () =>
-    db(`orders?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ tg_sent_at: null }) });
+  const release = () => patchOrder(id, { tg_sent_at: null });
 
   const token = tokenOf(o.site_id);
   if (!token) {
     await release();
     return { ok: false, error: "no TG_TOKEN_" + o.site_id };
   }
-  const [site] = await db(`sites?id=eq.${o.site_id}&select=name`);
-  const chats: { chat_id: number }[] = await db(`tg_chats?site_id=eq.${o.site_id}&select=chat_id`);
+  const chats: number[] = (await db(`tg_chats?site_id=eq.${o.site_id}&select=chat_id`)).map(
+    (c: { chat_id: number }) => c.chat_id,
+  );
   if (!chats.length) {
     await release();
     return { ok: false, error: "no chats" };
   }
 
-  const text = orderText(o, site?.name ?? "");
-  let sent = 0;
-  for (const ch of chats) {
+  // Накладну робимо ще до повідомлення — щоб номер ТТН прийшов у тому ж тексті
+  const t = await ensureTtn(o, false).catch((e) => ({ state: "error", why: String(e) }) as Ttn);
+  const text = orderText(o, await shopName(o.site_id), t);
+  const got_it: number[] = [];
+  for (const chat of chats) {
     const r = await tg(token, "sendMessage", {
-      chat_id: ch.chat_id,
+      chat_id: chat,
       text,
       parse_mode: "HTML",
       link_preview_options: { is_disabled: true },
-      reply_markup: { inline_keyboard: [[{ text: "Відкрити в адмінці", url: ADMIN }]] },
+      reply_markup: keys(o, t),
     });
-    if (r.ok) sent++;
+    if (r.ok) got_it.push(chat);
     // Бота заблокували або вигнали з групи — більше туди не стукаємо.
     else if (r.error_code === 403) {
-      await db(`tg_chats?site_id=eq.${o.site_id}&chat_id=eq.${ch.chat_id}`, { method: "DELETE" });
+      await db(`tg_chats?site_id=eq.${o.site_id}&chat_id=eq.${chat}`, { method: "DELETE" });
     }
   }
-  if (!sent) await release(); // жоден чат не отримав — хай підстраховка спробує ще раз
-  return { ok: sent > 0, sent };
+  if (!got_it.length) {
+    await release(); // жоден чат не отримав — хай підстраховка спробує ще раз
+    return { ok: false, ttn: t.state };
+  }
+  if (o.ttn) await sendLabel(token, o, got_it).catch((e) => console.error("label", e));
+  return { ok: true, sent: got_it.length, ttn: t.state };
 }
 
-/* ---------- повідомлення від людей ---------- */
+/* ---------- повідомлення й кнопки від людей ---------- */
 
+type Chat = { id: number; type: string; title?: string };
 type Update = {
   message?: {
-    chat: { id: number; type: string; title?: string };
+    chat: Chat;
     from?: { first_name?: string; last_name?: string; username?: string };
     text?: string;
   };
+  callback_query?: {
+    id: string;
+    data?: string;
+    message?: { message_id: number; chat: Chat };
+  };
 };
 
+const isLinked = async (site: number, chat: number) =>
+  (await db(`tg_chats?site_id=eq.${site}&chat_id=eq.${chat}&select=chat_id`)).length > 0;
+
+async function onButton(site: number, token: string, q: NonNullable<Update["callback_query"]>) {
+  const answer = (text = "", alert = false) =>
+    tg(token, "answerCallbackQuery", { callback_query_id: q.id, text, show_alert: alert });
+  const msg = q.message;
+  const m = String(q.data ?? "").match(/^(\w+!?):(\d+)$/);
+  if (!msg || !m) return answer();
+  const chat = msg.chat.id;
+  // Кнопки діють лише в під'єднаних чатах і лише для замовлень свого сайту
+  if (!(await isLinked(site, chat))) return answer("Цей чат не підключений до магазину", true);
+  const [, act, idStr] = m;
+  const [o]: Order[] = await db(`orders?id=eq.${Number(idStr)}&site_id=eq.${site}&select=*`);
+  if (!o) return answer("Не знайшов це замовлення", true);
+
+  const shop = await shopName(site);
+  const redraw = (t: Ttn, markup = keys(o, t), head?: string) =>
+    tg(token, "editMessageText", {
+      chat_id: chat,
+      message_id: msg.message_id,
+      text: orderText(o, shop, t, head),
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+      reply_markup: markup,
+    });
+  const now: Ttn = o.ttn ? { state: "exists" } : o.ttn_error ? { state: "error", why: o.ttn_error } : { state: "off" };
+
+  if (act === "ttn") {
+    if (o.ttn) {
+      await redraw(now);
+      return answer("ТТН уже є");
+    }
+    // Замок на дві хвилини: подвійне натискання не створить дві накладні
+    const lock = await db(
+      `orders?id=eq.${o.id}&ttn=eq.&or=(ttn_lock.is.null,ttn_lock.lt.%22${new Date(Date.now() - 120000).toISOString()}%22)&select=id`,
+      { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ ttn_lock: new Date().toISOString() }) },
+    );
+    if (!lock.length) return answer("Уже створюю, зачекайте кілька секунд");
+    await answer("Створюю ТТН…");
+    const t = await ensureTtn(o, true);
+    await patchOrder(o.id, { ttn_lock: null }).catch(() => {});
+    await redraw(t);
+    if (t.state === "made") await sendLabel(token, o, [chat]);
+    else if (t.state === "nokey") await tg(token, "sendMessage", { chat_id: chat, text: "Нова Пошта ще не підключена — ТТН створиться, щойно з'явиться ключ." });
+    return;
+  }
+
+  if (act === "lbl") {
+    if (!o.ttn) return answer("ТТН ще немає", true);
+    await answer("Надсилаю наклейку…");
+    await sendLabel(token, o, [chat]);
+    return;
+  }
+
+  // Скасування питаємо двічі: на телефоні легко зачепити кнопку випадково
+  if (act === "del") {
+    if (!o.ttn) return answer("ТТН уже немає");
+    await tg(token, "editMessageReplyMarkup", {
+      chat_id: chat,
+      message_id: msg.message_id,
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: `Так, скасувати ТТН ${o.ttn}`, callback_data: `del!:${o.id}` }],
+          [{ text: "Ні, лишити", callback_data: `keep:${o.id}` }],
+        ],
+      },
+    });
+    return answer();
+  }
+
+  if (act === "keep") {
+    await tg(token, "editMessageReplyMarkup", { chat_id: chat, message_id: msg.message_id, reply_markup: keys(o, now) });
+    return answer();
+  }
+
+  if (act === "del!") {
+    if (!o.ttn) return answer("ТТН уже немає");
+    const key = npKeyOf(site);
+    if (!key) return answer("Нова Пошта не підключена", true);
+    try {
+      await np(key, "InternetDocument", "delete", { DocumentRefs: o.ttn_ref });
+    } catch (e) {
+      return answer("НП не дала скасувати: " + (e instanceof Error ? e.message : e), true);
+    }
+    const old = o.ttn;
+    o.ttn = ""; o.ttn_ref = ""; o.ttn_cost = null; o.ttn_date = ""; o.ttn_error = "";
+    await patchOrder(o.id, { ttn: "", ttn_ref: "", ttn_cost: null, ttn_date: "", ttn_error: "" });
+    await redraw({ state: "off" });
+    await tg(token, "sendMessage", { chat_id: chat, text: `ТТН ${old} скасовано (замовлення ${o.ref}).` });
+    return answer("ТТН скасовано");
+  }
+
+  return answer();
+}
+
 async function onUpdate(site: number, token: string, u: Update) {
+  if (u.callback_query) return onButton(site, token, u.callback_query);
   const m = u.message;
   if (!m?.text) return;
   const chat = m.chat.id;
-  const [shopRow] = await db(`sites?id=eq.${site}&select=name`);
-  const shop = shopRow?.name ?? "магазину";
+  const shop = (await shopName(site)) || "магазину";
   const say = (text: string) => tg(token, "sendMessage", { chat_id: chat, text, parse_mode: "HTML" });
 
   // /start, /start КОД, /start@назва_бота КОД — останнє приходить із груп
   const cmd = m.text.trim().match(/^\/(\w+)(?:@\w+)?(?:\s+(\S+))?/);
   if (!cmd) return;
   const [, name, arg] = cmd;
-
-  const linked = (await db(`tg_chats?site_id=eq.${site}&chat_id=eq.${chat}&select=chat_id`)).length > 0;
+  const linked = await isLinked(site, chat);
 
   if (name === "start") {
     if (arg) {
@@ -246,18 +661,17 @@ async function onUpdate(site: number, token: string, u: Update) {
   }
 }
 
-/* ---------- налаштування бота ---------- */
+/* ---------- налаштування й перевірка ---------- */
 
 async function setup(site: number) {
   const token = tokenOf(site);
   if (!token) return { ok: false, error: "no TG_TOKEN_" + site };
-  const [shopRow] = await db(`sites?id=eq.${site}&select=name`);
-  const shop = shopRow?.name ?? "";
+  const shop = await shopName(site);
   const me = await tg(token, "getMe", {});
   const hook = await tg(token, "setWebhook", {
     url: HOOK + "?site=" + site,
     secret_token: await hookSecret(token),
-    allowed_updates: ["message"],
+    allowed_updates: ["message", "callback_query"],
   });
   await tg(token, "setMyDescription", {
     description: `Сюди приходять нові замовлення з сайту ${shop}. Підключення — за посиланням від адміністратора.`,
@@ -273,6 +687,27 @@ async function setup(site: number) {
   return { ok: !!hook.ok, bot: me.result?.username ?? null, webhook: hook.description ?? hook.ok };
 }
 
+// Що вже підключено. Жодних ключів і даних покупців — лише «так/ні» й адреса відправлення.
+async function check(site: number) {
+  const out: Record<string, unknown> = { bot: !!tokenOf(site), np_key: !!npKeyOf(site) };
+  const s = await npSettings(site);
+  out.np_settings = !!s;
+  if (s) {
+    out.auto = s.auto;
+    out.from = [s.sender_city, s.sender_branch && "№" + s.sender_branch].filter(Boolean).join(", ") || null;
+    out.cod = s.cod_mode;
+  }
+  if (s && out.np_key) {
+    try {
+      await sender(npKeyOf(site), s);
+      out.sender = "ok";
+    } catch (e) {
+      out.sender = e instanceof Error ? e.message : String(e);
+    }
+  }
+  return out;
+}
+
 /* ---------- вхід ---------- */
 
 const json = (x: unknown, status = 200) =>
@@ -283,6 +718,8 @@ Deno.serve(async (req) => {
   try {
     const setupSite = Number(url.searchParams.get("setup"));
     if (setupSite) return json(await setup(setupSite));
+    const checkSite = Number(url.searchParams.get("check"));
+    if (checkSite) return json(await check(checkSite));
 
     // Запит від Telegram: звіряємо підпис, інакше будь-хто міг би під'єднати свій чат
     const tgSecret = req.headers.get("x-telegram-bot-api-secret-token");
