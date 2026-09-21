@@ -8,6 +8,8 @@ import { getSupabase, type Order, type OrderStatus, type Site } from "@/lib/supa
    Список того, що прийшло з сайту. Товар списується зі складу ще
    при оформленні, тому тут важливі дві дії: скасувати (повертає
    товар на склад) і прийняти повернення (теж повертає).
+   Коли підключено Нову Пошту, «Відправлено», «Виконане» й «Повернення»
+   бот ставить сам за трекінгом — кнопки лишаються на випадок ручних правок.
    =========================================================== */
 
 type Notice = { kind: "ok" | "err"; text: string } | null;
@@ -15,6 +17,7 @@ type Filter = "all" | OrderStatus;
 
 const STATUS: Record<OrderStatus, string> = {
   new: "Нове",
+  shipped: "Відправлено",
   done: "Виконане",
   cancelled: "Скасоване",
   returned: "Повернення",
@@ -30,6 +33,25 @@ const FIELD: Record<string, string> = {
   delivery: "Доставка",
   comment: "Коментар",
 };
+
+// Службові поля для бота й накладної — власнику вони нічого не кажуть
+const HIDDEN = new Set(["dlv", "payId", "cityRef", "branchRef", "pay"]);
+
+// Оплата словами: спосіб і, для картки, чи дійшли гроші
+const payText = (o: Order) => {
+  const c = o.customer ?? {};
+  if (c["payId"] === "online") {
+    const test = o.pay_info?.test ? " (тестова оплата)" : "";
+    if (o.pay_state === "paid") return `Карткою на сайті — оплачено ${money(Number(o.pay_info?.amount ?? o.total))}${test}`;
+    if (o.pay_state === "refunded") return "Карткою на сайті — гроші повернено";
+    if (o.pay_state === "failed") return "Карткою на сайті — оплата не пройшла";
+    return "Карткою на сайті — ще не оплачено";
+  }
+  if (c["payId"] === "cod") return `Наложений платіж — ${money(Number(o.total))} при отриманні`;
+  return String(c["pay"] ?? "");
+};
+
+const track = (no: string) => "https://novaposhta.ua/tracking/?cargo_number=" + encodeURIComponent(no);
 
 const fmtWhen = (iso: string) => {
   const d = new Date(iso);
@@ -93,7 +115,7 @@ export default function OrdersAdmin({ site, canEdit }: { site: Site; canEdit: bo
   };
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = { all: orders.length, new: 0, done: 0, cancelled: 0, returned: 0 };
+    const c: Record<string, number> = { all: orders.length, new: 0, shipped: 0, done: 0, cancelled: 0, returned: 0 };
     orders.forEach((o) => {
       c[o.status] += 1;
     });
@@ -159,13 +181,20 @@ export default function OrdersAdmin({ site, canEdit }: { site: Site; canEdit: bo
               {fmtWhen(o.created_at)}
               {who ? " · " + who : ""} · {o.lines.length}{" "}
               {o.lines.length === 1 ? "позиція" : "позицій"}
+              {o.ttn ? " · ТТН " + o.ttn : ""}
             </span>
           </div>
           <div className="row__actions">
             <span
               className={
                 "pill" +
-                (o.status === "new" ? "" : o.status === "done" ? " pill--ok" : " pill--off")
+                (o.status === "new"
+                  ? ""
+                  : o.status === "shipped"
+                    ? " pill--warn"
+                    : o.status === "done"
+                      ? " pill--ok"
+                      : " pill--off")
               }
             >
               {STATUS[o.status]}
@@ -190,16 +219,52 @@ export default function OrdersAdmin({ site, canEdit }: { site: Site; canEdit: bo
 
             <div className="ordc">
               {Object.entries(c)
-                .filter(([, v]) => v !== null && v !== "" && typeof v !== "object")
+                .filter(([k, v]) => !HIDDEN.has(k) && v !== null && v !== "" && typeof v !== "object")
                 .map(([k, v]) => (
                   <p key={k}>
                     <span>{FIELD[k] ?? k}:</span> {String(v)}
                   </p>
                 ))}
+              {payText(o) && (
+                <p>
+                  <span>Оплата:</span> {payText(o)}
+                </p>
+              )}
+              {o.ttn ? (
+                <p>
+                  <span>ТТН:</span>{" "}
+                  <a href={track(o.ttn)} target="_blank" rel="noopener noreferrer">
+                    {o.ttn}
+                  </a>
+                  {o.ttn_cost ? " · доставка " + money(Number(o.ttn_cost)) : ""}
+                  {o.np_status ? " · " + o.np_status : ""}
+                </p>
+              ) : o.ttn_error ? (
+                <p>
+                  <span>ТТН:</span> не створилась — {o.ttn_error}
+                </p>
+              ) : null}
+              {o.np_return_ttn && (
+                <p>
+                  <span>Повернення:</span>{" "}
+                  <a href={track(o.np_return_ttn)} target="_blank" rel="noopener noreferrer">
+                    ТТН {o.np_return_ttn}
+                  </a>
+                </p>
+              )}
             </div>
 
             <div className="row__actions">
-              {o.status !== "done" && o.status !== "returned" && (
+              {o.status === "new" && (
+                <button
+                  className="btn btn--ghost btn--sm"
+                  disabled={busy || !canEdit}
+                  onClick={() => setStatus(o, "shipped")}
+                >
+                  Відправлено
+                </button>
+              )}
+              {(o.status === "new" || o.status === "shipped") && (
                 <button
                   className="btn btn--primary btn--sm"
                   disabled={busy || !canEdit}
@@ -217,7 +282,7 @@ export default function OrdersAdmin({ site, canEdit }: { site: Site; canEdit: bo
                   Скасувати
                 </button>
               )}
-              {o.status === "done" && (
+              {(o.status === "shipped" || o.status === "done") && (
                 <button
                   className="btn btn--danger btn--sm"
                   disabled={busy || !canEdit}
@@ -238,7 +303,8 @@ export default function OrdersAdmin({ site, canEdit }: { site: Site; canEdit: bo
             </div>
             <p className="note">
               Скасування й повернення самі кладуть товар назад на склад, поновлення — знову
-              знімає.
+              знімає. Гроші за оплату карткою скасування не повертає — це робиться в кабінеті
+              LiqPay.
             </p>
           </div>
         )}
@@ -258,6 +324,7 @@ export default function OrdersAdmin({ site, canEdit }: { site: Site; canEdit: bo
         {([
           ["all", "Усі"],
           ["new", "Нові"],
+          ["shipped", "Відправлені"],
           ["done", "Виконані"],
           ["cancelled", "Скасовані"],
           ["returned", "Повернення"],

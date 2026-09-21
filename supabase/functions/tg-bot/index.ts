@@ -1,10 +1,12 @@
 // Telegram-бот замовлень і накладні Нової Пошти.
 //
-// Один файл робить чотири речі:
+// Що вміє один файл:
 //   ?setup=<site>        — прив'язати бота до цієї функції (вебхук, опис, команди)
 //   ?check=<site>        — перевірити, що підключено: токен, ключ НП, відправник
 //   POST {order: <id>}   — нове замовлення: створити ТТН і надіслати все в чати
+//   POST {track: true}   — розклад раз на 30 хв: де посилки, статуси й повернення
 //   POST від Telegram    — /start <код>, /stop і кнопки під замовленням
+//   ?payon / ?pay / ?paystate / ?liqpay — оплата карткою через LiqPay
 //
 // Секрети лежать у Supabase → Edge Functions → Secrets:
 //   TG_TOKEN_<сайт> — токен бота, NP_KEY_<сайт> — ключ Нової Пошти.
@@ -364,6 +366,12 @@ type Order = {
   status?: string;
   pay_state?: string; // '' — оплата не на сайті; wait, paid, failed, refunded — карткою через LiqPay
   pay_info?: { amount?: number; test?: boolean };
+  np_track?: string;
+  np_arrived_at?: string | null;
+  np_stay_note_at?: string | null;
+  np_refused_at?: string | null;
+  np_return_ttn?: string;
+  np_back_arrived_at?: string | null;
 };
 
 function payLine(o: Order) {
@@ -642,7 +650,12 @@ async function onButton(site: number, token: string, q: NonNullable<Update["call
     }
     const old = o.ttn;
     o.ttn = ""; o.ttn_ref = ""; o.ttn_cost = null; o.ttn_date = ""; o.ttn_error = "";
-    await patchOrder(o.id, { ttn: "", ttn_ref: "", ttn_cost: null, ttn_date: "", ttn_error: "" });
+    // Разом із накладною скидаємо й стеження — нова ТТН почне його з нуля
+    await patchOrder(o.id, {
+      ttn: "", ttn_ref: "", ttn_cost: null, ttn_date: "", ttn_error: "",
+      np_track: "", np_code: null, np_status: "", np_checked_at: null, np_arrived_at: null,
+      np_stay_note_at: null, np_refused_at: null, np_return_ttn: "", np_back_arrived_at: null, np_final: false,
+    });
     await redraw({ state: "off" });
     await tg(token, "sendMessage", { chat_id: chat, text: `ТТН ${old} скасовано (замовлення ${o.ref}).` });
     return answer("ТТН скасовано");
@@ -707,6 +720,151 @@ async function onUpdate(site: number, token: string, u: Update) {
       await say("Цей чат і так не отримує замовлень.");
     }
   }
+}
+
+/* ---------- стеження за посилками ---------- */
+
+// Коди статусів Нової Пошти, згруповані за тим, що з ними робити
+const NP_WAY = [4, 41, 5, 6, 12, 101];   // прийняли й везуть
+const NP_HERE = [7, 8];                   // у відділенні (8 — у поштоматі)
+const NP_GOT = [9, 10, 11, 106];          // отримувач забрав
+const NP_BACK = [102, 103, 105];          // відмова або скінчилось зберігання — посилка їде назад
+const DAY = 86400000;
+
+// Коротке повідомлення всім під'єднаним чатам сайту
+async function tell(site: number, text: string) {
+  const token = tokenOf(site);
+  if (!token) return;
+  const chats: { chat_id: number }[] = await db(`tg_chats?site_id=eq.${site}&select=chat_id`);
+  for (const c of chats) {
+    await tg(token, "sendMessage", { chat_id: c.chat_id, text, parse_mode: "HTML", link_preview_options: { is_disabled: true } });
+  }
+}
+
+const setStatus = (id: number, status: string, note = "") =>
+  db("rpc/order_status_apply", {
+    method: "POST",
+    body: JSON.stringify({ p_order: id, p_status: status, p_who: "Нова Пошта", p_note: note }),
+  });
+
+type NpDoc = {
+  Number?: string;
+  StatusCode?: string | number;
+  Status?: string;
+  WarehouseRecipient?: string;
+  LastCreatedOnTheBasisNumber?: string;
+};
+
+// Один крок для одного замовлення: що змінилось із минулої перевірки
+async function trackOne(o: Order, r: NpDoc, back: boolean) {
+  const code = Number(r.StatusCode);
+  const now = new Date().toISOString();
+  const upd: Record<string, unknown> = { np_checked_at: now, np_code: code, np_status: String(r.Status ?? "") };
+  const ref = `<b>${esc(o.ref)}</b>`;
+  const where = code === 8 ? "поштоматі" : "відділенні";
+  const say: string[] = [];
+
+  if (back) {
+    // Стежимо за зворотною ТТН: посилка їде до вас
+    if (NP_HERE.includes(code) && !o.np_back_arrived_at) {
+      upd.np_back_arrived_at = now;
+      say.push(`📍 Повернення ${ref} чекає у ${where}: ${esc(r.WarehouseRecipient ?? "")} · ТТН ${esc(o.np_return_ttn)}`);
+    } else if (NP_GOT.includes(code)) {
+      upd.np_final = true;
+      if (["new", "shipped", "done"].includes(o.status ?? "")) {
+        await setStatus(o.id, "returned", "посилка повернулась, ТТН " + o.np_return_ttn);
+        say.push(`📦 ${ref} повернулась до вас. Товар знову на складі.`);
+      } else {
+        say.push(`📦 ${ref} повернулась до вас.`);
+      }
+    }
+  } else if (code === 2) {
+    // ТТН видалили вручну в кабінеті НП — замовлення лишається, накладної вже немає
+    Object.assign(upd, { ttn: "", ttn_ref: "", ttn_cost: null, ttn_date: "", np_track: "", np_final: false });
+    say.push(`🗑 ТТН ${esc(o.ttn)} до ${ref} видалено в кабінеті Нової Пошти.`);
+  } else if (code === 104 && r.LastCreatedOnTheBasisNumber && r.LastCreatedOnTheBasisNumber !== o.np_track) {
+    // Переадресація: далі посилка їде під новим номером
+    upd.np_track = r.LastCreatedOnTheBasisNumber;
+    say.push(`🔀 ${ref}: адресу доставки змінено, нова ТТН ${esc(r.LastCreatedOnTheBasisNumber)}.`);
+  } else if (NP_WAY.includes(code)) {
+    if (o.status === "new") {
+      await setStatus(o.id, "shipped");
+      say.push(`🚚 ${ref} відправлено · ТТН ${esc(o.ttn)}`);
+    }
+  } else if (NP_HERE.includes(code)) {
+    if (o.status === "new") await setStatus(o.id, "shipped");
+    if (!o.np_arrived_at) {
+      upd.np_arrived_at = now;
+      say.push(`📍 ${ref} прибула у ${where}: ${esc(r.WarehouseRecipient ?? "")}`);
+    } else if (!o.np_stay_note_at && Date.now() - Date.parse(o.np_arrived_at) >= 3 * DAY) {
+      upd.np_stay_note_at = now;
+      say.push(`⏳ ${ref} лежить у ${where} вже 3 дні.`);
+    }
+  } else if (NP_GOT.includes(code)) {
+    upd.np_final = true;
+    if (o.status === "new" || o.status === "shipped") await setStatus(o.id, "done");
+    const cod = o.customer?.payId === "cod" ? ` Наложений платіж ${money(o.total)} — Нова Пошта переведе гроші.` : "";
+    say.push(`✅ ${ref} отримано.${cod}`);
+  } else if (NP_BACK.includes(code)) {
+    if (!o.np_refused_at) {
+      upd.np_refused_at = now;
+      say.push(code === 105
+        ? `↩️ ${ref}: строк зберігання скінчився, посилка повертається.`
+        : `↩️ ${ref}: покупець відмовився, посилка повертається.`);
+    }
+    // Зворотна ТТН з'являється не одразу — підхопимо на наступній перевірці
+    if (r.LastCreatedOnTheBasisNumber && !o.np_return_ttn) upd.np_return_ttn = r.LastCreatedOnTheBasisNumber;
+  }
+
+  await patchOrder(o.id, upd);
+  for (const text of say) await tell(o.site_id, text);
+  return say.length > 0;
+}
+
+async function track() {
+  // Не частіше ніж раз на 20 хвилин для кожної посилки: зайвий виклик нічого не зробить
+  const fresh = new Date(Date.now() - 20 * 60000).toISOString();
+  const since = new Date(Date.now() - 60 * DAY).toISOString();
+  const list: Order[] = await db(
+    `orders?ttn=neq.&np_final=is.false&created_at=gt.${since}` +
+      `&or=(np_checked_at.is.null,np_checked_at.lt.%22${fresh}%22)&select=*&order=id&limit=500`,
+  );
+  const bySite = new Map<number, Order[]>();
+  for (const o of list) bySite.set(o.site_id, [...(bySite.get(o.site_id) ?? []), o]);
+
+  let checked = 0, changed = 0;
+  for (const [site, orders] of bySite) {
+    const key = npKeyOf(site);
+    if (!key) continue; // Нову Пошту для цього сайту ще не підключили
+    const s = await npSettings(site);
+    const phone = s?.sender_phone ?? "";
+    // Замовлення, де посилка вже їде назад, перевіряємо за зворотною ТТН
+    const jobs = orders.map((o) => ({ o, back: !!o.np_return_ttn, no: o.np_return_ttn || o.np_track || o.ttn || "" }));
+    for (let i = 0; i < jobs.length; i += 100) {
+      const part = jobs.slice(i, i + 100);
+      let docs: NpDoc[] = [];
+      try {
+        docs = await np(key, "TrackingDocument", "getStatusDocuments", {
+          Documents: part.map((j) => ({ DocumentNumber: j.no, Phone: phone })),
+        });
+      } catch (e) {
+        console.error("track", site, e);
+        continue;
+      }
+      const byNo = new Map(docs.map((d) => [String(d.Number), d]));
+      for (const j of part) {
+        const r = byNo.get(j.no);
+        if (!r) continue;
+        checked++;
+        try {
+          if (await trackOne(j.o, r, j.back)) changed++;
+        } catch (e) {
+          console.error("track order", j.o.id, e);
+        }
+      }
+    }
+  }
+  return { ok: true, checked, changed };
 }
 
 /* ---------- оплата карткою через LiqPay ---------- */
@@ -913,6 +1071,7 @@ Deno.serve(async (req) => {
       const body = await req.json().catch(() => ({}));
       const id = Number(body?.order);
       if (id) return json(await notify(id));
+      if (body?.track === true) return json(await track());
     }
     return json({ ok: false, error: "nothing to do" }, 400);
   } catch (e) {

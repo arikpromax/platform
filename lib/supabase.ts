@@ -138,7 +138,7 @@ export type OrderLine = {
   price?: number;
 };
 
-export type OrderStatus = 'new' | 'done' | 'cancelled' | 'returned';
+export type OrderStatus = 'new' | 'shipped' | 'done' | 'cancelled' | 'returned';
 
 export type Order = {
   id: number;
@@ -151,6 +151,14 @@ export type Order = {
   note: string;
   created_at: string;
   updated_at: string;
+  // Накладна й оплата — заповнюють бот і LiqPay (див. supabase/functions/tg-bot)
+  ttn?: string;
+  ttn_cost?: number | null;
+  ttn_error?: string;
+  np_status?: string;
+  np_return_ttn?: string;
+  pay_state?: string;
+  pay_info?: { amount?: number; test?: boolean; card?: string };
 };
 
 export type Profile = {
