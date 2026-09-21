@@ -26,6 +26,10 @@ const HOOK = BASE + "/functions/v1/tg-bot";
 
 const tokenOf = (site: number) => Deno.env.get("TG_TOKEN_" + site) ?? "";
 const npKeyOf = (site: number) => Deno.env.get("NP_KEY_" + site) ?? "";
+const liqOf = (site: number) => ({
+  pub: Deno.env.get("LIQPAY_PUBLIC_" + site) ?? "",
+  priv: Deno.env.get("LIQPAY_PRIVATE_" + site) ?? "",
+});
 
 /* ---------- база ---------- */
 
@@ -356,7 +360,24 @@ type Order = {
   ttn_cost?: number | null;
   ttn_date?: string;
   ttn_error?: string;
+  status?: string;
+  pay_state?: string; // '' — оплата не на сайті; wait, paid, failed, refunded — карткою через LiqPay
+  pay_info?: { amount?: number; test?: boolean };
 };
+
+function payLine(o: Order) {
+  const c = o.customer ?? {};
+  if (c.payId === "online") {
+    if (o.pay_state === "paid") {
+      return `Оплата: карткою на сайті — <b>оплачено ${money(o.pay_info?.amount ?? o.total)}</b>` +
+        (o.pay_info?.test ? " (тестова оплата)" : "");
+    }
+    if (o.pay_state === "refunded") return "Оплата: карткою на сайті — <b>гроші повернено</b>";
+    return "Оплата: карткою на сайті — <b>ще не оплачено</b>";
+  }
+  if (c.payId === "cod") return `Оплата: наложений платіж — ${money(o.total)} при отриманні`;
+  return `Оплата: ${esc(c.pay)}`;
+}
 
 function ttnLine(o: Order, t: Ttn) {
   if (o.ttn) {
@@ -405,7 +426,7 @@ function orderText(o: Order, shop: string, t: Ttn, head = "Нове замовл
     "",
     `Доставка: ${esc(c.delivery)}`,
     where ? where : "",
-    `Оплата: ${esc(c.pay)}`,
+    payLine(o),
     ttn ? "\n" + ttn : "",
     "",
     `${esc(c.name)}`,
@@ -452,6 +473,16 @@ async function notify(id: number) {
 
   const release = () => patchOrder(id, { tg_sent_at: null });
 
+  // Оплата карткою: замовлення приходить у Telegram лише тоді, коли LiqPay
+  // підтвердив гроші. Неоплачене через 30 хвилин база скасує сама.
+  if (o.customer?.payId === "online" && o.pay_state !== "paid") {
+    await release();
+    return { ok: false, error: "not paid yet" };
+  }
+  // Гроші прийшли вже після автоскасування: товар повернули на склад,
+  // тож накладну не робимо — власник спершу перевірить наявність.
+  const late = o.status === "cancelled";
+
   const token = tokenOf(o.site_id);
   if (!token) {
     await release();
@@ -466,8 +497,14 @@ async function notify(id: number) {
   }
 
   // Накладну робимо ще до повідомлення — щоб номер ТТН прийшов у тому ж тексті
-  const t = await ensureTtn(o, false).catch((e) => ({ state: "error", why: String(e) }) as Ttn);
-  const text = orderText(o, await shopName(o.site_id), t);
+  const t: Ttn = late
+    ? { state: "off" }
+    : await ensureTtn(o, false).catch((e) => ({ state: "error", why: String(e) }) as Ttn);
+  const text = late
+    ? orderText(o, await shopName(o.site_id), t, "⚠️ Оплата після скасування") +
+      "\n\nЗамовлення скасувалося, бо оплата йшла довше 30 хвилин, і товар повернувся на склад. " +
+      "Перевірте наявність, поверніть замовлення в «Нове» в адмінці й створіть ТТН кнопкою."
+    : orderText(o, await shopName(o.site_id), t);
   const got_it: number[] = [];
   for (const chat of chats) {
     const r = await tg(token, "sendMessage", {
@@ -661,6 +698,118 @@ async function onUpdate(site: number, token: string, u: Update) {
   }
 }
 
+/* ---------- оплата карткою через LiqPay ---------- */
+
+// Ключі LiqPay: LIQPAY_PUBLIC_<сайт> і LIQPAY_PRIVATE_<сайт>. Приватним ключем
+// підписуємо платіж і перевіряємо відповідь — він ніколи не покидає функцію.
+const b64 = (s: string) => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
+const unb64 = (s: string) => new TextDecoder().decode(Uint8Array.from(atob(s), (ch) => ch.charCodeAt(0)));
+
+async function liqSign(priv: string, data: string) {
+  const buf = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(priv + data + priv));
+  return btoa(String.fromCharCode(...new Uint8Array(buf)));
+}
+
+// Чи показувати на сайті «Карткою на сайті». Тестові ключі (sandbox_…) сайт
+// показує лише тому, хто сам увімкнув перевірку, — інакше справжній покупець
+// «оплатив» би тестовою карткою.
+function payOn(site: number) {
+  const { pub, priv } = liqOf(site);
+  return { online: !!(pub && priv), sandbox: pub.startsWith("sandbox_") };
+}
+
+// Готує форму оплати. Суму бере з бази, а не з браузера.
+async function payStart(id: number, back: string) {
+  const [o]: Order[] = await db(`orders?id=eq.${id}&select=*`);
+  if (!o) return { ok: false, error: "order" };
+  if (o.customer?.payId !== "online") return { ok: false, error: "not online" };
+  if (o.pay_state === "paid") return { ok: false, error: "paid" };
+  if (o.status !== "new") return { ok: false, error: "cancelled" };
+  const { pub, priv } = liqOf(o.site_id);
+  if (!pub || !priv) return { ok: false, error: "no liqpay" };
+
+  let result_url = "";
+  try {
+    const u = new URL(back);
+    if (u.protocol === "https:" && back.length < 500) result_url = u.href;
+  } catch { /* без повернення LiqPay просто покаже свою сторінку «Дякуємо» */ }
+
+  const params = {
+    version: 3,
+    public_key: pub,
+    action: "pay",
+    amount: Math.round(Number(o.total) * 100) / 100,
+    currency: "UAH",
+    description: `Замовлення ${o.ref} · ${await shopName(o.site_id)}`,
+    // Кожна спроба з новим хвостом: після невдалої оплати LiqPay не прийняв би той самий номер
+    order_id: `${o.site_id}-${o.id}-${Date.now().toString(36)}`,
+    language: "uk",
+    server_url: `${HOOK}?liqpay=${o.site_id}`,
+    ...(result_url ? { result_url } : {}),
+  };
+  const data = b64(JSON.stringify(params));
+  if (o.pay_state !== "wait") await patchOrder(o.id, { pay_state: "wait" });
+  return { ok: true, url: "https://www.liqpay.ua/api/3/checkout", data, signature: await liqSign(priv, data) };
+}
+
+// Для сторінки, на яку покупець повертається з LiqPay. Потрібні і номер, і код
+// замовлення — так чужі замовлення не перебрати.
+async function payState(id: number, ref: string) {
+  const [o] = await db(`orders?id=eq.${id}&ref=eq.${encodeURIComponent(ref)}&select=pay_state,status`);
+  return o ? { ok: true, state: o.pay_state, status: o.status } : { ok: false };
+}
+
+// LiqPay повідомляє про оплату сюди. Віримо лише підпису приватним ключем.
+async function liqCallback(site: number, req: Request) {
+  const form = new URLSearchParams(await req.text());
+  const data = form.get("data") ?? "";
+  const { priv } = liqOf(site);
+  if (!priv || !data || form.get("signature") !== (await liqSign(priv, data))) return { ok: false, error: "sign" };
+  const p = JSON.parse(unb64(data));
+  const m = String(p.order_id ?? "").match(/^(\d+)-(\d+)-/);
+  if (!m || Number(m[1]) !== site) return { ok: false, error: "order_id" };
+  const [o]: Order[] = await db(`orders?id=eq.${Number(m[2])}&site_id=eq.${site}&select=*`);
+  if (!o) return { ok: false, error: "order" };
+
+  const status = String(p.status ?? "");
+  const info = {
+    status,
+    payment_id: p.payment_id ?? null,
+    amount: Number(p.amount) || 0,
+    currency: p.currency ?? "",
+    card: p.sender_card_mask2 ?? "",
+    test: status === "sandbox",
+    at: new Date().toISOString(),
+  };
+
+  // success — оплачено; sandbox — те саме в тестовому режимі;
+  // wait_accept — гроші списані, але магазин ще не пройшов перевірку LiqPay
+  if (["success", "sandbox", "wait_accept"].includes(status)) {
+    if (info.amount + 0.01 < Number(o.total) || info.currency !== "UAH") {
+      await patchOrder(o.id, { pay_state: "failed", pay_info: { ...info, error: "сума не збігається" } });
+      return { ok: false, error: "amount" };
+    }
+    // Лише перший раз: зміна на «оплачено» сама штовхає бота через тригер у базі
+    await db(`orders?id=eq.${o.id}&pay_state=neq.paid`, {
+      method: "PATCH",
+      body: JSON.stringify({ pay_state: "paid", paid_at: info.at, pay_info: info }),
+    });
+  } else if (["failure", "error"].includes(status)) {
+    if (o.pay_state !== "paid") await patchOrder(o.id, { pay_state: "failed", pay_info: info });
+  } else if (status === "reversed") {
+    await patchOrder(o.id, { pay_state: "refunded", pay_info: info });
+    const token = tokenOf(site);
+    const chats = await db(`tg_chats?site_id=eq.${site}&select=chat_id`);
+    for (const c of chats) {
+      await tg(token, "sendMessage", {
+        chat_id: c.chat_id,
+        text: `Оплату за замовлення ${o.ref} (${money(info.amount)}) повернено покупцеві.`,
+      });
+    }
+  }
+  return { ok: true };
+}
+
 /* ---------- налаштування й перевірка ---------- */
 
 async function setup(site: number) {
@@ -710,16 +859,32 @@ async function check(site: number) {
 
 /* ---------- вхід ---------- */
 
-const json = (x: unknown, status = 200) =>
-  new Response(JSON.stringify(x), { status, headers: { "Content-Type": "application/json" } });
+// Запити з браузера (оплата на сайті) приходять з іншої адреси — їм потрібен дозвіл CORS
+const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS" };
+const json = (x: unknown, status = 200, cors = false) =>
+  new Response(JSON.stringify(x), {
+    status,
+    headers: { "Content-Type": "application/json", ...(cors ? CORS : {}) },
+  });
 
 Deno.serve(async (req) => {
   const url = new URL(req.url);
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   try {
     const setupSite = Number(url.searchParams.get("setup"));
     if (setupSite) return json(await setup(setupSite));
     const checkSite = Number(url.searchParams.get("check"));
     if (checkSite) return json(await check(checkSite));
+
+    // Оплата карткою: що показати на сайті, форма оплати, стан після повернення, відповідь LiqPay
+    const payOnSite = Number(url.searchParams.get("payon"));
+    if (payOnSite) return json(payOn(payOnSite), 200, true);
+    const payId = Number(url.searchParams.get("pay"));
+    if (payId) return json(await payStart(payId, url.searchParams.get("back") ?? ""), 200, true);
+    const stateId = Number(url.searchParams.get("paystate"));
+    if (stateId) return json(await payState(stateId, url.searchParams.get("ref") ?? ""), 200, true);
+    const liqSite = Number(url.searchParams.get("liqpay"));
+    if (liqSite && req.method === "POST") return json(await liqCallback(liqSite, req));
 
     // Запит від Telegram: звіряємо підпис, інакше будь-хто міг би під'єднати свій чат
     const tgSecret = req.headers.get("x-telegram-bot-api-secret-token");
