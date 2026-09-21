@@ -202,7 +202,8 @@ type Ttn =
   | { state: "manual"; why: string }  // кур'єр: адреса вписана текстом
   | { state: "nokey" }                // Нову Пошту ще не підключили
   | { state: "off" }                  // автоматичне створення вимкнене
-  | { state: "error"; why: string };
+  | { state: "error"; why: string }
+  | { state: "demo"; no: string };   // тестове замовлення: номер для вигляду, у НП його немає
 
 async function ensureTtn(o: Order, force: boolean): Promise<Ttn> {
   if (o.ttn) return { state: "exists" };
@@ -392,6 +393,7 @@ function ttnLine(o: Order, t: Ttn) {
     case "nokey": return "ТТН: Нова Пошта ще не підключена";
     case "off": return "ТТН: створіть кнопкою нижче";
     case "error": return `⚠️ ТТН не створилась: ${esc(t.why)}`;
+    case "demo": return `<b>ТТН ${t.no}</b> · тестова, у Новій Пошті її немає`;
     default: return "";
   }
 }
@@ -499,8 +501,12 @@ async function notify(id: number) {
   }
 
   // Накладну робимо ще до повідомлення — щоб номер ТТН прийшов у тому ж тексті
-  const t: Ttn = late || test
+  // Тестовому замовленню — вигаданий номер, щоб було видно, як виглядатиме справжнє
+  const demo = (): Ttn => ({ state: "demo", no: "2045" + String(Math.floor(Math.random() * 1e10)).padStart(10, "0") });
+  const t: Ttn = late
     ? { state: "off" }
+    : test
+    ? demo()
     : await ensureTtn(o, false).catch((e) => ({ state: "error", why: String(e) }) as Ttn);
   const text = late
     ? orderText(o, await shopName(o.site_id), t, "⚠️ Оплата після скасування") +
@@ -508,7 +514,7 @@ async function notify(id: number) {
       "Перевірте наявність, поверніть замовлення в «Нове» в адмінці й створіть ТТН кнопкою."
     : test
     ? orderText(o, await shopName(o.site_id), t, "🧪 ТЕСТОВЕ замовлення") +
-      "\n\nОплата тестова — гроші не списані. ТТН сама не створюється; щоб перевірити накладну, натисніть кнопку."
+      "\n\nОплата тестова — гроші не списані, номер ТТН вигаданий. Справжня накладна тут сама не створюється."
     : orderText(o, await shopName(o.site_id), t);
   const got_it: number[] = [];
   for (const chat of chats) {
