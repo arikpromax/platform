@@ -1,0 +1,7 @@
+# Лише те, що потрібно для викладання функцій з цієї теки.
+project_id = "ortiatyxntdikaldepbp"
+
+# Telegram не вміє надсилати ключ Supabase, тому функція сама перевіряє,
+# хто до неї стукає (підпис Telegram або номер замовлення з бази).
+[functions.tg-bot]
+verify_jwt = false
