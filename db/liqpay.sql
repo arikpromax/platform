@@ -6,7 +6,7 @@
 --   2. Сайт відкриває сторінку LiqPay, покупець платить.
 --   3. LiqPay повідомляє функцію tg-bot, вона перевіряє підпис і ставить «оплачено».
 --   4. Ця зміна сама штовхає бота: ТТН + повідомлення «оплачено» в Telegram.
---   5. Не оплатили за 30 хвилин — замовлення скасовується, товар повертається на склад.
+--   5. Не оплатили за 10 хвилин — замовлення скасовується, товар повертається на склад.
 --
 -- Поки в Secrets немає ключів LIQPAY_PUBLIC_<сайт> і LIQPAY_PRIVATE_<сайт>,
 -- сайт цього способу оплати просто не показує.
@@ -80,7 +80,7 @@ begin
 end
 $fn$;
 
--- ---------- 3) Не оплатили за 30 хвилин — скасувати й повернути товар ----------
+-- ---------- 3) Не оплатили за 10 хвилин — скасувати й повернути товар ----------
 create or replace function public.orders_expire_unpaid() returns void
 language plpgsql security definer set search_path = public as
 $fn$
@@ -89,7 +89,7 @@ begin
   for o in
     select * from orders
      where status = 'new' and pay_state in ('wait', 'failed')
-       and created_at < now() - interval '30 minutes'
+       and created_at < now() - interval '10 minutes'
      for update skip locked
   loop
     for l in select value from jsonb_array_elements(o.lines) loop
@@ -101,12 +101,12 @@ begin
       if found then
         insert into stock_moves (site_id, item_id, size, color, kind, delta, qty_after, note, order_ref, who)
         values (o.site_id, (l->>'item_id')::bigint, coalesce(l->>'size', ''), coalesce(l->>'color', ''),
-                'return', need, v_after, 'не оплачено за 30 хвилин', o.ref, 'сайт');
+                'return', need, v_after, 'не оплачено за 10 хвилин', o.ref, 'сайт');
       end if;
     end loop;
     update orders
        set status = 'cancelled',
-           note = trim(note || ' Не оплачено карткою за 30 хвилин — скасовано автоматично.'),
+           note = trim(note || ' Не оплачено карткою за 10 хвилин — скасовано автоматично.'),
            updated_at = now()
      where id = o.id;
   end loop;
@@ -116,7 +116,7 @@ $fn$;
 revoke all on function public.orders_expire_unpaid() from public, anon, authenticated;
 revoke all on function public.tg_sweep() from public, anon, authenticated;
 
-select cron.schedule('orders-expire-unpaid', '*/5 * * * *', $$select public.orders_expire_unpaid()$$);
+select cron.schedule('orders-expire-unpaid', '* * * * *', $$select public.orders_expire_unpaid()$$);
 
 -- ---------- 4) Тексти сайту: без оплати «на картку ФОП» ----------
 -- Оплата на сайті — наложений платіж (і готівка при самовивозі). Реквізити ФОП

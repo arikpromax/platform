@@ -474,7 +474,7 @@ async function notify(id: number) {
   const release = () => patchOrder(id, { tg_sent_at: null });
 
   // Оплата карткою: замовлення приходить у Telegram лише тоді, коли LiqPay
-  // підтвердив гроші. Неоплачене через 30 хвилин база скасує сама.
+  // підтвердив гроші. Неоплачене через 10 хвилин база скасує сама.
   if (o.customer?.payId === "online" && o.pay_state !== "paid") {
     await release();
     return { ok: false, error: "not paid yet" };
@@ -502,7 +502,7 @@ async function notify(id: number) {
     : await ensureTtn(o, false).catch((e) => ({ state: "error", why: String(e) }) as Ttn);
   const text = late
     ? orderText(o, await shopName(o.site_id), t, "⚠️ Оплата після скасування") +
-      "\n\nЗамовлення скасувалося, бо оплата йшла довше 30 хвилин, і товар повернувся на склад. " +
+      "\n\nЗамовлення скасувалося, бо оплата йшла довше 10 хвилин, і товар повернувся на склад. " +
       "Перевірте наявність, поверніть замовлення в «Нове» в адмінці й створіть ТТН кнопкою."
     : orderText(o, await shopName(o.site_id), t);
   const got_it: number[] = [];
