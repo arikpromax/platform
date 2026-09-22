@@ -18,7 +18,8 @@
 -- ---------- 1) Що магазин уже забрав ----------
 alter table public.orders
   add column if not exists synced_at   timestamptz,               -- коли програма магазину прийняла замовлення
-  add column if not exists sync_status text not null default '';  -- з яким статусом прийняла
+  add column if not exists sync_status text not null default '',  -- з яким статусом прийняла
+  add column if not exists oversold_at timestamptz;                -- коли зʼясувалось, що річ уже продали в магазині
 
 -- Усе, що було до запуску обміну, магазину не надсилаємо — там уже розібрались вручну
 update public.orders set synced_at = coalesce(synced_at, now()), sync_status = status
@@ -59,11 +60,15 @@ $fn$
 $fn$;
 
 -- ---------- 3) Залишки й ціни з магазину ----------
-create or replace function public.sync_stock(p_site bigint, p_items jsonb, p_full boolean default false)
+drop function if exists public.sync_stock(bigint, jsonb, boolean);
+create or replace function public.sync_stock(
+  p_site bigint, p_items jsonb, p_full boolean default false, p_dry boolean default false
+)
 returns jsonb language plpgsql security definer set search_path = public as
 $fn$
 declare
-  g record; r record; s record;
+  g record; r record; s record; o record;
+  v_conflicts jsonb := '[]'::jsonb;
   v_item bigint; v_extra jsonb; v_sizes text[]; v_target int; v_pending int;
   v_created jsonb := '[]'::jsonb; v_changed int := 0; v_items int := 0; v_zeroed int := 0;
   v_skus text[];
@@ -93,6 +98,38 @@ begin
    where coalesce(btrim(x->>'sku'), '') <> '';
 
   select array_agg(distinct sku) into v_skus from _sync_in;
+
+  -- Пробний прогін: нічого не міняємо, лише кажемо, що з чим зійшлося
+  if p_dry then
+    return jsonb_build_object(
+      'ok', true, 'dry', true,
+      'rows', (select count(*) from _sync_in),
+      'skus', (select count(distinct sku) from _sync_in),
+      'matched', (select count(distinct x.sku) from _sync_in x
+                   where exists (select 1 from items i
+                                  where i.site_id = p_site and i.collection = 'products'
+                                    and (i.extra->>'sku' = x.sku or x.sku = any(string_to_array(i.extra->>'sku', '__'))))),
+      'new', (select coalesce(jsonb_agg(q.sku), '[]'::jsonb) from (
+                select distinct x.sku from _sync_in x
+                 where not exists (select 1 from items i
+                                    where i.site_id = p_site and i.collection = 'products'
+                                      and (i.extra->>'sku' = x.sku or x.sku = any(string_to_array(i.extra->>'sku', '__'))))
+                 order by x.sku limit 300) q),
+      'absent', (select coalesce(jsonb_agg(jsonb_build_object('sku', q.sku, 'title', q.title)), '[]'::jsonb) from (
+                   select i.extra->>'sku' as sku, i.title from items i
+                    where i.site_id = p_site and i.collection = 'products'
+                      and exists (select 1 from stock st where st.item_id = i.id and st.qty > 0)
+                      and not exists (select 1 from _sync_in x
+                                       where x.sku = i.extra->>'sku' or x.sku = any(string_to_array(i.extra->>'sku', '__')))
+                    order by i.title limit 300) q),
+      'new_sizes', (select coalesce(jsonb_agg(jsonb_build_object('sku', q.sku, 'size', q.size)), '[]'::jsonb) from (
+                   select x.sku, x.size from _sync_in x join items i
+                     on i.site_id = p_site and i.collection = 'products'
+                    and (i.extra->>'sku' = x.sku or x.sku = any(string_to_array(i.extra->>'sku', '__')))
+                    where not exists (select 1 from stock st where st.item_id = i.id and public.sync_size(st.size) = x.nsize)
+                    order by x.sku limit 100) q)
+    );
+  end if;
 
   for g in
     select sku, max(name) as name, max(brand) as brand, max(category) as category, max(gender) as gender,
@@ -137,6 +174,7 @@ begin
                 'tag', '', 'weight', '',
                 'stock', g.total > 0,
                 'photos', '[]'::jsonb,
+                'title_auto', true,   -- назва з програми; бот замінить її офіційною назвою Nike
                 -- Nike і Jordan: фото знайде бот у каталогу Nike за артикулом
                 'photo_lookup', case when (g.brand || ' ' || g.name) ~* '(nike|jordan)' then 'pending' else 'none' end),
               0)
@@ -168,6 +206,21 @@ begin
          and (l->>'item_id')::bigint = v_item
          and public.sync_size(l->>'size') = r.nsize;
       v_target := greatest(r.qty - v_pending, 0);
+
+      -- У магазині менше, ніж замовили на сайті й магазин ще не забрав:
+      -- ту саму річ продали і там, і тут. Кажемо про кожне таке замовлення один раз.
+      if r.qty < v_pending then
+        for o in
+          select distinct o2.id, o2.ref from orders o2, jsonb_array_elements(o2.lines) l2
+           where o2.site_id = p_site and o2.synced_at is null and o2.oversold_at is null
+             and o2.status in ('new', 'shipped', 'done')
+             and (l2->>'item_id')::bigint = v_item and public.sync_size(l2->>'size') = r.nsize
+        loop
+          update orders set oversold_at = now() where id = o.id;
+          v_conflicts := v_conflicts || jsonb_build_array(jsonb_build_object(
+            'ref', o.ref, 'sku', g.sku, 'size', r.size, 'shop_qty', r.qty, 'site_orders', v_pending));
+        end loop;
+      end if;
 
       select * into s from stock
        where site_id = p_site and item_id = v_item and color = '' and public.sync_size(size) = r.nsize
@@ -208,7 +261,7 @@ begin
   end if;
 
   return jsonb_build_object('ok', true, 'items', v_items, 'changed', v_changed,
-                            'zeroed', v_zeroed, 'created', v_created);
+                            'zeroed', v_zeroed, 'created', v_created, 'conflicts', v_conflicts);
 end
 $fn$;
 
@@ -247,20 +300,32 @@ $fn$
 $fn$;
 
 -- ---------- 5) Магазин підтвердив, що забрав ----------
-create or replace function public.sync_ack(p_site bigint, p_refs text[])
-returns jsonb language sql security definer set search_path = public as
+drop function if exists public.sync_ack(bigint, text[]);
+create or replace function public.sync_ack(p_site bigint, p_refs text[], p_short text[] default '{}')
+returns jsonb language plpgsql security definer set search_path = public as
 $fn$
+declare v_acked jsonb; v_short jsonb;
+begin
   with done as (
     update orders set synced_at = coalesce(synced_at, now()), sync_status = status
      where site_id = p_site and ref = any(p_refs)
     returning ref
-  )
-  select jsonb_build_object('ok', true, 'acked', coalesce(jsonb_agg(ref), '[]'::jsonb)) from done
+  ) select coalesce(jsonb_agg(ref), '[]'::jsonb) into v_acked from done;
+
+  -- Замовлення, які програма не змогла провести, бо товару вже немає
+  with bad as (
+    update orders set oversold_at = now()
+     where site_id = p_site and ref = any(p_short) and oversold_at is null
+    returning ref
+  ) select coalesce(jsonb_agg(ref), '[]'::jsonb) into v_short from bad;
+
+  return jsonb_build_object('ok', true, 'acked', v_acked, 'short', v_short);
+end
 $fn$;
 
-revoke all on function public.sync_stock(bigint, jsonb, boolean) from public, anon, authenticated;
+revoke all on function public.sync_stock(bigint, jsonb, boolean, boolean) from public, anon, authenticated;
 revoke all on function public.orders_for_shop(bigint) from public, anon, authenticated;
-revoke all on function public.sync_ack(bigint, text[]) from public, anon, authenticated;
-grant execute on function public.sync_stock(bigint, jsonb, boolean) to service_role;
+revoke all on function public.sync_ack(bigint, text[], text[]) from public, anon, authenticated;
+grant execute on function public.sync_stock(bigint, jsonb, boolean, boolean) to service_role;
 grant execute on function public.orders_for_shop(bigint) to service_role;
-grant execute on function public.sync_ack(bigint, text[]) to service_role;
+grant execute on function public.sync_ack(bigint, text[], text[]) to service_role;

@@ -7,6 +7,7 @@
 //   POST {track: true}   — розклад раз на 30 хв: де посилки, статуси й повернення
 //   POST від Telegram    — /start <код>, /stop і кнопки під замовленням
 //   ?payon / ?pay / ?paystate / ?liqpay — оплата карткою через LiqPay
+//   ?sync=stock|orders|ack&site=N — обмін із програмою обліку магазину (УкрСклад)
 //
 // Секрети лежать у Supabase → Edge Functions → Secrets:
 //   TG_TOKEN_<сайт> — токен бота, NP_KEY_<сайт> — ключ Нової Пошти.
@@ -898,7 +899,9 @@ const rpc = (name: string, args: Record<string, unknown>) =>
 
 // Фото з офіційного каталогу Nike за артикулом: колір гарантовано той самий.
 // Картинки лежать у squarishURL; розмір задається заміною /t_default/.
-async function nikePhotos(sku: string): Promise<string[]> {
+// Разом із фото беремо офіційну назву моделі й колір — для нових карток.
+type NikeInfo = { urls: string[]; title: string; color: string };
+async function nikeInfo(sku: string): Promise<NikeInfo> {
   const code = sku.split("__")[0].trim();
   for (const [market, lang] of [["GB", "en-GB"], ["US", "en"], ["DE", "de"]]) {
     try {
@@ -908,7 +911,9 @@ async function nikePhotos(sku: string): Promise<string[]> {
           "&filter=productInfo.merchProduct.styleColor(" + encodeURIComponent(code) + ")",
       );
       const j = await r.json();
-      const nodes = j?.objects?.[0]?.publishedContent?.nodes?.[0]?.nodes ?? [];
+      const obj = j?.objects?.[0];
+      const content = obj?.productInfo?.[0]?.productContent ?? {};
+      const nodes = obj?.publishedContent?.nodes?.[0]?.nodes ?? [];
       const urls: string[] = [];
       for (const n of nodes) {
         const u = n?.properties?.squarishURL;
@@ -918,10 +923,32 @@ async function nikePhotos(sku: string): Promise<string[]> {
         }
         if (urls.length >= 4) break;
       }
-      if (urls.length) return urls;
+      if (urls.length) {
+        return { urls, title: String(content.title ?? ""), color: String(content.colorDescription ?? "") };
+      }
     } catch { /* пробуємо інший ринок */ }
   }
-  return [];
+  return { urls: [], title: "", color: "" };
+}
+
+// Назва в стилі сайту: «Кросівки чоловічі Air Max 90 Anthracite» — бренд на
+// сайті показано окремо, тому з назви Nike його прибираємо.
+const KIND: Record<string, [string, "pl" | "f" | "m"]> = {
+  vzuttia: ["Кросівки", "pl"], kurtky: ["Куртка", "f"], kofty: ["Кофта", "f"],
+  kostiumy: ["Костюм", "m"], zhyletky: ["Жилетка", "f"], shtany: ["Штани", "pl"],
+  futbolky: ["Футболка", "f"], shorty: ["Шорти", "pl"], shkarpetky: ["Шкарпетки", "pl"],
+};
+const WHO: Record<string, Record<string, string>> = {
+  m: { pl: "чоловічі", f: "чоловіча", m: "чоловічий" },
+  w: { pl: "жіночі", f: "жіноча", m: "жіночий" },
+};
+function niceTitle(info: NikeInfo, extra: Record<string, unknown>) {
+  const model = info.title.replace(/^Nike\s+/i, "").trim();
+  if (!model) return "";
+  const [noun, form] = KIND[String(extra.cat ?? "")] ?? ["", "pl"];
+  const who = WHO[String(extra.gender ?? "")]?.[form] ?? "";
+  const color = info.color.split("/")[0].trim();
+  return [noun, who, model, color].filter(Boolean).join(" ");
 }
 
 // Новим карткам Nike і Jordan шукаємо фото — не більше 15 за раз, решту
@@ -932,15 +959,36 @@ async function findPhotos(site: number) {
   );
   let found = 0;
   for (const it of todo) {
-    const urls = await nikePhotos(String(it.extra.sku ?? ""));
-    const extra = { ...it.extra, photo_lookup: urls.length ? "done" : "none" };
-    if (urls.length && !(Array.isArray(it.extra.photos) && it.extra.photos.length)) {
-      (extra as Record<string, unknown>).photos = urls;
+    const info = await nikeInfo(String(it.extra.sku ?? ""));
+    const extra: Record<string, unknown> = { ...it.extra, photo_lookup: info.urls.length ? "done" : "none" };
+    const patch: Record<string, unknown> = { extra };
+    if (info.urls.length && !(Array.isArray(it.extra.photos) && it.extra.photos.length)) {
+      extra.photos = info.urls;
       found++;
     }
-    await db(`items?id=eq.${it.id}`, { method: "PATCH", body: JSON.stringify({ extra }) });
+    // Назву з програми («Крос Найк АМ90 сір») міняємо на офіційну, поки її не правили в адмінці
+    if (it.extra.title_auto === true) {
+      const title = niceTitle(info, it.extra);
+      if (title) patch.title = title;
+      extra.title_auto = false;
+    }
+    await db(`items?id=eq.${it.id}`, { method: "PATCH", body: JSON.stringify(patch) });
   }
   return { checked: todo.length, found };
+}
+
+// Одну річ продали і в магазині, і на сайті — кажемо в Telegram одразу,
+// поки посилку не відправили: покупцю пропонують інший розмір або повертають гроші.
+async function warnOversold(site: number, list: { ref: string; sku?: string; size?: string }[], why: string) {
+  for (const c of list) {
+    const what = c.sku ? ` ${esc(c.sku)}${c.size ? ", розмір " + esc(c.size) : ""}` : "";
+    await tell(
+      site,
+      `⚠️ <b>${esc(c.ref)}</b>${what ? ":" + what : ""} — ${why}.\n` +
+        "Звʼяжіться з покупцем: запропонуйте інший розмір або поверніть гроші, " +
+        "скасуйте ТТН і поставте «Скасоване» в адмінці.",
+    ).catch((e) => console.error("warn", e));
+  }
 }
 
 async function onSync(kind: string, site: number, req: Request) {
@@ -949,7 +997,12 @@ async function onSync(kind: string, site: number, req: Request) {
   if (kind === "stock" && req.method === "POST") {
     const body = await req.json().catch(() => null);
     if (!body || !Array.isArray(body.items)) return json({ ok: false, error: "items" }, 400);
-    const res = await rpc("sync_stock", { p_site: site, p_items: body.items, p_full: body.full === true });
+    const dry = body.dry === true;
+    const res = await rpc("sync_stock", {
+      p_site: site, p_items: body.items, p_full: body.full === true, p_dry: dry,
+    });
+    if (dry) return json(res);
+    await warnOversold(site, res?.conflicts ?? [], "у магазині вже продали");
     const photos = await findPhotos(site).catch((e) => ({ error: String(e) }));
     return json({ ...res, photos });
   }
@@ -961,8 +1014,11 @@ async function onSync(kind: string, site: number, req: Request) {
   if (kind === "ack" && req.method === "POST") {
     const body = await req.json().catch(() => null);
     const refs = Array.isArray(body?.refs) ? body.refs.map(String).slice(0, 500) : [];
-    if (!refs.length) return json({ ok: false, error: "refs" }, 400);
-    return json(await rpc("sync_ack", { p_site: site, p_refs: refs }));
+    const short = Array.isArray(body?.short) ? body.short.map(String).slice(0, 500) : [];
+    if (!refs.length && !short.length) return json({ ok: false, error: "refs" }, 400);
+    const res = await rpc("sync_ack", { p_site: site, p_refs: refs, p_short: short });
+    await warnOversold(site, (res?.short ?? []).map((ref: string) => ({ ref })), "магазин не зміг провести — товару немає");
+    return json(res);
   }
 
   return json({ ok: false, error: "nothing to do" }, 400);
