@@ -876,6 +876,98 @@ async function track() {
   return { ok: true, checked, changed };
 }
 
+/* ---------- обмін із програмою обліку магазину ---------- */
+
+// Програма магазину — головна по товарах, кількості й цінах. Її скрипт стукає
+// сюди з ключем SYNC_KEY_<сайт> у заголовку X-Sync-Key:
+//   POST ?sync=stock&site=N   {items:[{sku,size,qty,price,old_price,name,brand,category,gender}], full}
+//   GET  ?sync=orders&site=N  — замовлення сайту для розхідних накладних
+//   POST ?sync=ack&site=N     {refs:[...]} — програма забрала ці замовлення
+async function syncAllowed(site: number, req: Request) {
+  const want = Deno.env.get("SYNC_KEY_" + site) ?? "";
+  const got = req.headers.get("x-sync-key") ?? "";
+  if (want.length < 24 || got.length !== want.length) return false;
+  // порівняння без підказки за часом, де саме розійшлися ключі
+  let diff = 0;
+  for (let i = 0; i < want.length; i++) diff |= want.charCodeAt(i) ^ got.charCodeAt(i);
+  return diff === 0;
+}
+
+const rpc = (name: string, args: Record<string, unknown>) =>
+  db("rpc/" + name, { method: "POST", body: JSON.stringify(args) });
+
+// Фото з офіційного каталогу Nike за артикулом: колір гарантовано той самий.
+// Картинки лежать у squarishURL; розмір задається заміною /t_default/.
+async function nikePhotos(sku: string): Promise<string[]> {
+  const code = sku.split("__")[0].trim();
+  for (const [market, lang] of [["GB", "en-GB"], ["US", "en"], ["DE", "de"]]) {
+    try {
+      const r = await fetch(
+        "https://api.nike.com/product_feed/threads/v2/?filter=marketplace(" + market + ")" +
+          "&filter=language(" + lang + ")&filter=channelId(d9a5bc42-4b9c-4976-858a-f159cf99c647)" +
+          "&filter=productInfo.merchProduct.styleColor(" + encodeURIComponent(code) + ")",
+      );
+      const j = await r.json();
+      const nodes = j?.objects?.[0]?.publishedContent?.nodes?.[0]?.nodes ?? [];
+      const urls: string[] = [];
+      for (const n of nodes) {
+        const u = n?.properties?.squarishURL;
+        if (typeof u === "string" && u.includes("/t_default/")) {
+          const big = u.replace("/t_default/", "/t_PDP_1280_v1/");
+          if (!urls.includes(big)) urls.push(big);
+        }
+        if (urls.length >= 4) break;
+      }
+      if (urls.length) return urls;
+    } catch { /* пробуємо інший ринок */ }
+  }
+  return [];
+}
+
+// Новим карткам Nike і Jordan шукаємо фото — не більше 15 за раз, решту
+// підхопить наступна синхронізація. Знайшли — товар зʼявляється на сайті.
+async function findPhotos(site: number) {
+  const todo: { id: number; extra: Record<string, unknown> }[] = await db(
+    `items?site_id=eq.${site}&collection=eq.products&extra->>photo_lookup=eq.pending&select=id,extra&limit=15`,
+  );
+  let found = 0;
+  for (const it of todo) {
+    const urls = await nikePhotos(String(it.extra.sku ?? ""));
+    const extra = { ...it.extra, photo_lookup: urls.length ? "done" : "none" };
+    if (urls.length && !(Array.isArray(it.extra.photos) && it.extra.photos.length)) {
+      (extra as Record<string, unknown>).photos = urls;
+      found++;
+    }
+    await db(`items?id=eq.${it.id}`, { method: "PATCH", body: JSON.stringify({ extra }) });
+  }
+  return { checked: todo.length, found };
+}
+
+async function onSync(kind: string, site: number, req: Request) {
+  if (!site || !(await syncAllowed(site, req))) return json({ ok: false, error: "key" }, 401);
+
+  if (kind === "stock" && req.method === "POST") {
+    const body = await req.json().catch(() => null);
+    if (!body || !Array.isArray(body.items)) return json({ ok: false, error: "items" }, 400);
+    const res = await rpc("sync_stock", { p_site: site, p_items: body.items, p_full: body.full === true });
+    const photos = await findPhotos(site).catch((e) => ({ error: String(e) }));
+    return json({ ...res, photos });
+  }
+
+  if (kind === "orders") {
+    return json({ ok: true, orders: await rpc("orders_for_shop", { p_site: site }) });
+  }
+
+  if (kind === "ack" && req.method === "POST") {
+    const body = await req.json().catch(() => null);
+    const refs = Array.isArray(body?.refs) ? body.refs.map(String).slice(0, 500) : [];
+    if (!refs.length) return json({ ok: false, error: "refs" }, 400);
+    return json(await rpc("sync_ack", { p_site: site, p_refs: refs }));
+  }
+
+  return json({ ok: false, error: "nothing to do" }, 400);
+}
+
 /* ---------- оплата карткою через LiqPay ---------- */
 
 // Ключі LiqPay: LIQPAY_PUBLIC_<сайт> і LIQPAY_PRIVATE_<сайт>. Приватним ключем
@@ -1051,6 +1143,10 @@ Deno.serve(async (req) => {
   try {
     const setupSite = Number(url.searchParams.get("setup"));
     if (setupSite) return json(await setup(setupSite));
+    // Обмін із програмою магазину — лише з ключем SYNC_KEY_<сайт>
+    const syncKind = url.searchParams.get("sync");
+    if (syncKind) return await onSync(syncKind, Number(url.searchParams.get("site")), req);
+
     const checkSite = Number(url.searchParams.get("check"));
     if (checkSite) return json(await check(checkSite));
 
