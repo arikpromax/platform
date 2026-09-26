@@ -73,6 +73,8 @@ export type SiteConfig = {
   stock?: boolean;
   stockCollection?: string; // колекція товарів, типово products
   stockSizes?: string; // поле в extra зі списком розмірів, типово sizes
+  // true — вкладка «Підключення»: ключі Нової Пошти, оплати й обміну зі складом
+  connect?: boolean;
 };
 
 export type Site = {

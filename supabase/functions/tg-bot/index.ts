@@ -9,8 +9,9 @@
 //   ?payon / ?pay / ?paystate / ?liqpay — оплата карткою через LiqPay
 //   ?sync=stock|orders|ack&site=N — обмін із програмою обліку магазину (УкрСклад)
 //
-// Секрети лежать у Supabase → Edge Functions → Secrets:
-//   TG_TOKEN_<сайт> — токен бота, NP_KEY_<сайт> — ключ Нової Пошти.
+// Ключі власник вписує в адмінці, розділ «Підключення» (таблиця site_keys).
+// Чого там немає — беремо з Supabase → Edge Functions → Secrets:
+//   TG_TOKEN_<сайт>, NP_KEY_<сайт>, LIQPAY_*_<сайт>, MONO_TOKEN_<сайт>, SYNC_KEY_<сайт>.
 // Без ключа НП бот працює як і раніше, лише пише, що ТТН ще не підключені.
 // Базу функція читає службовим ключем, який Supabase підкладає сам.
 
@@ -27,11 +28,28 @@ const KEY =
 const ADMIN = "https://platform-one-bay.vercel.app";
 const HOOK = BASE + "/functions/v1/tg-bot";
 
-const tokenOf = (site: number) => Deno.env.get("TG_TOKEN_" + site) ?? "";
-const npKeyOf = (site: number) => Deno.env.get("NP_KEY_" + site) ?? "";
-const liqOf = (site: number) => ({
-  pub: Deno.env.get("LIQPAY_PUBLIC_" + site) ?? "",
-  priv: Deno.env.get("LIQPAY_PRIVATE_" + site) ?? "",
+// Ключі власник вписує в адмінці («Підключення») — вони лежать у закритій
+// таблиці site_keys. Якщо там порожньо, беремо з Secrets, як було раніше.
+// Півхвилини тримаємо знайдене в памʼяті, щоб не питати базу на кожен крок.
+const keyBox = new Map<string, { at: number; v: string }>();
+async function keyOf(site: number, name: string): Promise<string> {
+  const id = site + ":" + name;
+  const hit = keyBox.get(id);
+  if (hit && Date.now() - hit.at < 30000) return hit.v;
+  let v = "";
+  try {
+    const [row] = await db(`site_keys?site_id=eq.${site}&name=eq.${name}&select=value`);
+    v = String(row?.value ?? "");
+  } catch { /* таблиці ще немає — працюємо на Secrets */ }
+  if (!v) v = Deno.env.get(name + "_" + site) ?? "";
+  keyBox.set(id, { at: Date.now(), v });
+  return v;
+}
+const tokenOf = (site: number) => keyOf(site, "TG_TOKEN");
+const npKeyOf = (site: number) => keyOf(site, "NP_KEY");
+const liqOf = async (site: number) => ({
+  pub: await keyOf(site, "LIQPAY_PUBLIC"),
+  priv: await keyOf(site, "LIQPAY_PRIVATE"),
 });
 
 /* ---------- база ---------- */
@@ -125,6 +143,8 @@ type NpSet = {
   sender_phone: string;
   cod_mode: string;
   description: string;
+  pay_provider: string;   // liqpay | mono | off — обирають в адмінці
+  weight_default: number; // вага, коли в товару своєї немає
 };
 
 async function npSettings(site: number): Promise<NpSet | null> {
@@ -185,7 +205,7 @@ const CAT_KG: Record<string, number> = {
   aksesuary: 0.2,
 };
 
-async function parcel(o: Order) {
+async function parcel(o: Order, fallbackKg = 0.5) {
   const ids = [...new Set((o.lines ?? []).map((l) => Number(l.item_id)).filter(Boolean))];
   const items: { id: number; extra: Record<string, unknown> }[] = ids.length
     ? await db(`items?id=in.(${ids.join(",")})&select=id,extra`)
@@ -197,7 +217,7 @@ async function parcel(o: Order) {
     const x = by.get(Number(l.item_id)) ?? {};
     const own = parseFloat(String(x.weight ?? "").replace(",", "."));
     const cat = String(x.cat ?? "");
-    kg += (own > 0 ? own : CAT_KG[cat] ?? 0.5) * q;
+    kg += (own > 0 ? own : CAT_KG[cat] ?? fallbackKg) * q;
     if (cat === "vzuttia") shoes += q;
     else soft += q;
   }
@@ -224,7 +244,7 @@ async function ensureTtn(o: Order, force: boolean): Promise<Ttn> {
   if (dlv === "pickup" || (!dlv && /самовивіз/i.test(c.delivery ?? ""))) return { state: "none" };
   if (dlv === "np_courier") return { state: "manual", why: "курʼєр: адреса вписана текстом" };
 
-  const key = npKeyOf(o.site_id);
+  const key = await npKeyOf(o.site_id);
   if (!key) return { state: "nokey" };
   const s = await npSettings(o.site_id);
   if (!s) return { state: "nokey" };
@@ -255,7 +275,7 @@ async function ensureTtn(o: Order, force: boolean): Promise<Ttn> {
     const [free] = await db(`texts?site_id=eq.${o.site_id}&key=eq.free_from&select=value`);
     const freeFrom = Number(String(free?.value ?? "").replace(/\D/g, "")) || 0;
     const total = Math.round(Number(o.total) || 0);
-    const box = await parcel(o);
+    const box = await parcel(o, Number(s.weight_default) || 0.5);
     const today = new Date().toLocaleDateString("uk-UA", {
       timeZone: "Europe/Kyiv",
       day: "2-digit",
@@ -334,7 +354,7 @@ async function label(key: string, ref: string): Promise<Uint8Array | null> {
 }
 
 async function sendLabel(token: string, o: Order, chats: number[]) {
-  const key = npKeyOf(o.site_id);
+  const key = await npKeyOf(o.site_id);
   if (!key || !o.ttn_ref) return;
   const pdf = await label(key, o.ttn_ref);
   if (!pdf) return;
@@ -505,7 +525,7 @@ async function notify(id: number) {
   // Тестова оплата LiqPay (sandbox): гроші не рухались, тож і накладну сама не робимо
   const test = !!o.pay_info?.test;
 
-  const token = tokenOf(o.site_id);
+  const token = await tokenOf(o.site_id);
   if (!token) {
     await release();
     return { ok: false, error: "no TG_TOKEN_" + o.site_id };
@@ -651,7 +671,7 @@ async function onButton(site: number, token: string, q: NonNullable<Update["call
 
   if (act === "del!") {
     if (!o.ttn) return answer("ТТН уже немає");
-    const key = npKeyOf(site);
+    const key = await npKeyOf(site);
     if (!key) return answer("Нова Пошта не підключена", true);
     try {
       await np(key, "InternetDocument", "delete", { DocumentRefs: o.ttn_ref });
@@ -743,7 +763,7 @@ const DAY = 86400000;
 
 // Коротке повідомлення всім під'єднаним чатам сайту
 async function tell(site: number, text: string) {
-  const token = tokenOf(site);
+  const token = await tokenOf(site);
   if (!token) return;
   const chats: { chat_id: number }[] = await db(`tg_chats?site_id=eq.${site}&select=chat_id`);
   for (const c of chats) {
@@ -844,7 +864,7 @@ async function track() {
 
   let checked = 0, changed = 0;
   for (const [site, orders] of bySite) {
-    const key = npKeyOf(site);
+    const key = await npKeyOf(site);
     if (!key) continue; // Нову Пошту для цього сайту ще не підключили
     const s = await npSettings(site);
     const phone = s?.sender_phone ?? "";
@@ -885,7 +905,7 @@ async function track() {
 //   GET  ?sync=orders&site=N  — замовлення сайту для розхідних накладних
 //   POST ?sync=ack&site=N     {refs:[...]} — програма забрала ці замовлення
 async function syncAllowed(site: number, req: Request) {
-  const want = Deno.env.get("SYNC_KEY_" + site) ?? "";
+  const want = await keyOf(site, "SYNC_KEY");
   const got = req.headers.get("x-sync-key") ?? "";
   if (want.length < 24 || got.length !== want.length) return false;
   // порівняння без підказки за часом, де саме розійшлися ключі
@@ -1039,9 +1059,27 @@ async function liqSign(priv: string, data: string) {
 // Чи показувати на сайті «Карткою на сайті». Тестові ключі (sandbox_…) сайт
 // показує лише тому, хто сам увімкнув перевірку, — інакше справжній покупець
 // «оплатив» би тестовою карткою.
-function payOn(site: number) {
-  const { pub, priv } = liqOf(site);
-  return { online: !!(pub && priv), sandbox: pub.startsWith("sandbox_") };
+async function payOn(site: number) {
+  const s = await npSettings(site);
+  const how = s?.pay_provider ?? "liqpay";
+  if (how === "off") return { online: false, sandbox: false, how };
+  if (how === "mono") {
+    return { online: !!(await keyOf(site, "MONO_TOKEN")), sandbox: false, how };
+  }
+  const { pub, priv } = await liqOf(site);
+  return { online: !!(pub && priv), sandbox: pub.startsWith("sandbox_"), how };
+}
+
+// MonoPay: створюємо рахунок і відправляємо покупця на сторінку monobank.
+// Статус оплати потім перепитуємо в них самих — так підробити його не вийде.
+async function mono(token: string, path: string, init: RequestInit = {}) {
+  const r = await fetch("https://api.monobank.ua/api/merchant/" + path, {
+    ...init,
+    headers: { "X-Token": token, "Content-Type": "application/json", ...(init.headers ?? {}) },
+  });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new Error("monobank " + r.status + ": " + JSON.stringify(j).slice(0, 200));
+  return j;
 }
 
 // Готує форму оплати. Суму бере з бази, а не з браузера.
@@ -1051,8 +1089,8 @@ async function payStart(id: number, back: string) {
   if (o.customer?.payId !== "online") return { ok: false, error: "not online" };
   if (o.pay_state === "paid") return { ok: false, error: "paid" };
   if (o.status !== "new") return { ok: false, error: "cancelled" };
-  const { pub, priv } = liqOf(o.site_id);
-  if (!pub || !priv) return { ok: false, error: "no liqpay" };
+  const how = (await payOn(o.site_id)).how;
+  if (how === "off") return { ok: false, error: "no pay" };
 
   let result_url = "";
   try {
@@ -1060,15 +1098,41 @@ async function payStart(id: number, back: string) {
     if (u.protocol === "https:" && back.length < 500) result_url = u.href;
   } catch { /* без повернення LiqPay просто покаже свою сторінку «Дякуємо» */ }
 
+  const shop = await shopName(o.site_id);
+  const amount = Math.round(Number(o.total) * 100) / 100;
+  const tail = `${o.site_id}-${o.id}-${Date.now().toString(36)}`;
+
+  if (how === "mono") {
+    const token = await keyOf(o.site_id, "MONO_TOKEN");
+    if (!token) return { ok: false, error: "no mono" };
+    const inv = await mono(token, "invoice/create", {
+      method: "POST",
+      body: JSON.stringify({
+        amount: Math.round(amount * 100),          // monobank рахує в копійках
+        ccy: 980,
+        merchantPaymInfo: { reference: tail, destination: `Замовлення ${o.ref} · ${shop}` },
+        redirectUrl: result_url || undefined,
+        webHookUrl: `${HOOK}?mono=${o.site_id}`,
+        validity: 900,
+      }),
+    });
+    if (!inv?.pageUrl) return { ok: false, error: "mono" };
+    if (o.pay_state !== "wait") await patchOrder(o.id, { pay_state: "wait" });
+    await patchOrder(o.id, { pay_info: { how: "mono", invoiceId: inv.invoiceId, ref: tail } });
+    return { ok: true, redirect: inv.pageUrl };
+  }
+
+  const { pub, priv } = await liqOf(o.site_id);
+  if (!pub || !priv) return { ok: false, error: "no liqpay" };
   const params = {
     version: 3,
     public_key: pub,
     action: "pay",
-    amount: Math.round(Number(o.total) * 100) / 100,
+    amount,
     currency: "UAH",
-    description: `Замовлення ${o.ref} · ${await shopName(o.site_id)}`,
+    description: `Замовлення ${o.ref} · ${shop}`,
     // Кожна спроба з новим хвостом: після невдалої оплати LiqPay не прийняв би той самий номер
-    order_id: `${o.site_id}-${o.id}-${Date.now().toString(36)}`,
+    order_id: tail,
     language: "uk",
     server_url: `${HOOK}?liqpay=${o.site_id}`,
     ...(result_url ? { result_url } : {}),
@@ -1086,10 +1150,47 @@ async function payState(id: number, ref: string) {
 }
 
 // LiqPay повідомляє про оплату сюди. Віримо лише підпису приватним ключем.
+// monobank сповіщає про оплату сюди. Тілу повідомлення не віримо:
+// самі питаємо monobank, що з рахунком.
+async function monoCallback(site: number, req: Request) {
+  const body = await req.json().catch(() => null);
+  const id = String(body?.invoiceId ?? "");
+  if (!id) return { ok: false, error: "invoiceId" };
+  const token = await keyOf(site, "MONO_TOKEN");
+  if (!token) return { ok: false, error: "no mono" };
+  const inv = await mono(token, "invoice/status?invoiceId=" + encodeURIComponent(id));
+  const m = String(inv?.reference ?? "").match(/^(\d+)-(\d+)-/);
+  if (!m || Number(m[1]) !== site) return { ok: false, error: "reference" };
+  const [o]: Order[] = await db(`orders?id=eq.${Number(m[2])}&site_id=eq.${site}&select=*`);
+  if (!o) return { ok: false, error: "order" };
+  const paid = Math.round(Number(inv?.amount ?? 0)) / 100;
+  const info = {
+    how: "mono", status: String(inv?.status ?? ""), invoiceId: id,
+    amount: paid, currency: "UAH", card: inv?.paymentInfo?.maskedPan ?? "",
+    test: false, at: new Date().toISOString(),
+  };
+  if (inv?.status === "success") {
+    if (paid + 0.01 < Number(o.total)) {
+      await patchOrder(o.id, { pay_state: "failed", pay_info: { ...info, error: "сума не збігається" } });
+      return { ok: false, error: "amount" };
+    }
+    await db(`orders?id=eq.${o.id}&pay_state=neq.paid`, {
+      method: "PATCH",
+      body: JSON.stringify({ pay_state: "paid", paid_at: info.at, pay_info: info }),
+    });
+  } else if (["failure", "expired"].includes(String(inv?.status))) {
+    if (o.pay_state !== "paid") await patchOrder(o.id, { pay_state: "failed", pay_info: info });
+  } else if (String(inv?.status) === "reversed") {
+    await patchOrder(o.id, { pay_state: "refunded", pay_info: info });
+    await tell(site, `Оплату за замовлення ${esc(o.ref)} (${money(paid)}) повернено покупцеві.`);
+  }
+  return { ok: true };
+}
+
 async function liqCallback(site: number, req: Request) {
   const form = new URLSearchParams(await req.text());
   const data = form.get("data") ?? "";
-  const { priv } = liqOf(site);
+  const { priv } = await liqOf(site);
   if (!priv || !data || form.get("signature") !== (await liqSign(priv, data))) return { ok: false, error: "sign" };
   const p = JSON.parse(unb64(data));
   const m = String(p.order_id ?? "").match(/^(\d+)-(\d+)-/);
@@ -1124,7 +1225,7 @@ async function liqCallback(site: number, req: Request) {
     if (o.pay_state !== "paid") await patchOrder(o.id, { pay_state: "failed", pay_info: info });
   } else if (status === "reversed") {
     await patchOrder(o.id, { pay_state: "refunded", pay_info: info });
-    const token = tokenOf(site);
+    const token = await tokenOf(site);
     const chats = await db(`tg_chats?site_id=eq.${site}&select=chat_id`);
     for (const c of chats) {
       await tg(token, "sendMessage", {
@@ -1139,7 +1240,7 @@ async function liqCallback(site: number, req: Request) {
 /* ---------- налаштування й перевірка ---------- */
 
 async function setup(site: number) {
-  const token = tokenOf(site);
+  const token = await tokenOf(site);
   if (!token) return { ok: false, error: "no TG_TOKEN_" + site };
   const shop = await shopName(site);
   const me = await tg(token, "getMe", {});
@@ -1164,7 +1265,8 @@ async function setup(site: number) {
 
 // Що вже підключено. Жодних ключів і даних покупців — лише «так/ні» й адреса відправлення.
 async function check(site: number) {
-  const out: Record<string, unknown> = { bot: !!tokenOf(site), np_key: !!npKeyOf(site) };
+  const npKey = await npKeyOf(site);
+  const out: Record<string, unknown> = { bot: !!(await tokenOf(site)), np_key: !!npKey };
   const s = await npSettings(site);
   out.np_settings = !!s;
   if (s) {
@@ -1174,7 +1276,7 @@ async function check(site: number) {
   }
   if (s && out.np_key) {
     try {
-      await sender(npKeyOf(site), s);
+      await sender(npKey, s);
       out.sender = "ok";
     } catch (e) {
       out.sender = e instanceof Error ? e.message : String(e);
@@ -1208,19 +1310,21 @@ Deno.serve(async (req) => {
 
     // Оплата карткою: що показати на сайті, форма оплати, стан після повернення, відповідь LiqPay
     const payOnSite = Number(url.searchParams.get("payon"));
-    if (payOnSite) return json(payOn(payOnSite), 200, true);
+    if (payOnSite) return json(await payOn(payOnSite), 200, true);
     const payId = Number(url.searchParams.get("pay"));
     if (payId) return json(await payStart(payId, url.searchParams.get("back") ?? ""), 200, true);
     const stateId = Number(url.searchParams.get("paystate"));
     if (stateId) return json(await payState(stateId, url.searchParams.get("ref") ?? ""), 200, true);
     const liqSite = Number(url.searchParams.get("liqpay"));
     if (liqSite && req.method === "POST") return json(await liqCallback(liqSite, req));
+    const monoSite = Number(url.searchParams.get("mono"));
+    if (monoSite && req.method === "POST") return json(await monoCallback(monoSite, req));
 
     // Запит від Telegram: звіряємо підпис, інакше будь-хто міг би під'єднати свій чат
     const tgSecret = req.headers.get("x-telegram-bot-api-secret-token");
     if (tgSecret) {
       const site = Number(url.searchParams.get("site"));
-      const token = tokenOf(site);
+      const token = await tokenOf(site);
       if (!token || tgSecret !== (await hookSecret(token))) return json({ ok: false }, 401);
       const update = await req.json().catch(() => ({}));
       // Telegram чекає відповіді недовго й повторює запит, тому помилки лише пишемо в журнал
