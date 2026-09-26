@@ -23,7 +23,6 @@ type Settings = {
   description: string;
   auto: boolean;
   pay_provider: string;
-  pay_test: boolean;
   weight_default: number;
 };
 
@@ -262,23 +261,6 @@ export default function ConnectAdmin({ site, canEdit }: { site: Site; canEdit: b
             </select>
             <p className="fhint">
               Оплата зʼявиться на сайті, щойно буде вписаний токен monobank.
-            </p>
-          </div>
-          <div className="field">
-            <label htmlFor="pay-test">Тестовий токен</label>
-            <select
-              id="pay-test"
-              value={set.pay_test ? "1" : "0"}
-              disabled={!canEdit || busy}
-              onChange={(e) => saveSettings({ pay_test: e.target.value === "1" })}
-            >
-              <option value="0">Ні, це справжня оплата</option>
-              <option value="1">Так, перевірка — гроші не списуються</option>
-            </select>
-            <p className="fhint">
-              З тестовим токеном на сайті при оплаті написано, що гроші не списуються, а в
-              Telegram замовлення позначається як тестове й накладна сама не створюється.
-              Отримали робочий токен — поставте «Ні».
             </p>
           </div>
           <div className="field">

@@ -144,7 +144,6 @@ type NpSet = {
   cod_mode: string;
   description: string;
   pay_provider: string;   // mono | off — обирають в адмінці
-  pay_test: boolean;      // тестовий токен: гроші не рухаються
   weight_default: number; // вага, коли в товару своєї немає
 };
 
@@ -1057,15 +1056,15 @@ async function liqSign(priv: string, data: string) {
   return btoa(String.fromCharCode(...new Uint8Array(buf)));
 }
 
-// Чи показувати на сайті «Карткою на сайті» і чи писати покупцеві, що це
-// перевірка. Тестовий режим вмикають в адмінці разом із тестовим токеном:
-// інакше людина заплатила б тестовою карткою й думала, що замовлення оплачене.
+// Чи показувати на сайті «Карткою на сайті». Оплата завжди вважається
+// справжньою: у токені monobank немає ознаки, тестовий він чи робочий,
+// а підписувати чужі гроші як «перевірку» — гірше, ніж навпаки.
 async function payOn(site: number) {
   const s = await npSettings(site);
   const how = s?.pay_provider ?? "mono";
   if (how === "off") return { online: false, sandbox: false, how };
   if (how === "mono") {
-    return { online: !!(await keyOf(site, "MONO_TOKEN")), sandbox: !!s?.pay_test, how };
+    return { online: !!(await keyOf(site, "MONO_TOKEN")), sandbox: false, how };
   }
   const { pub, priv } = await liqOf(site);
   return { online: !!(pub && priv), sandbox: pub.startsWith("sandbox_"), how };
@@ -1181,7 +1180,7 @@ async function monoCallback(site: number, req: Request) {
   const info = {
     how: "mono", status: String(inv?.status ?? ""), invoiceId: id,
     amount: paid, currency: "UAH", card: inv?.paymentInfo?.maskedPan ?? "",
-    test: !!(await npSettings(site))?.pay_test, at: new Date().toISOString(),
+    test: false, at: new Date().toISOString(),
   };
   if (inv?.status === "success") {
     if (paid + 0.01 < Number(o.total)) {
@@ -1280,7 +1279,7 @@ async function setup(site: number) {
 // Що вже підключено. Жодних ключів і даних покупців — лише «так/ні» й адреса відправлення.
 // Позначка версії: після заливки функції одразу видно в ?check=, який саме
 // код у ній лежить. Міняти щоразу, коли віддаю файл власнику на деплой.
-const BUILD = "2026-09-26-2";
+const BUILD = "2026-09-26-3";
 
 async function check(site: number) {
   const npKey = await npKeyOf(site);
