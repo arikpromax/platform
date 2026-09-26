@@ -329,9 +329,21 @@ body{
 .ordc p{margin:2px 0}
 .ordc span{color:var(--muted)}
 
-/* ---------- Документ на весь екран (оферта, політика) ---------- */
-.modal-form--wide{width:min(100%,900px)}
-.docedit{min-height:min(62dvh,620px);font-family:inherit;line-height:1.55}
-.docview{margin:0;padding:14px 16px;border:1.5px solid var(--line);border-radius:11px;
-  background:#fff;max-height:min(62dvh,620px);overflow:auto;
+/* ---------- Документ на весь екран (оферта, політика) ----------
+   Вікно займає всю висоту, а сам текст розтягується на все, що лишилось
+   від заголовка й кнопок: оферту читають і правлять цілою сторінкою. */
+.modal-form--wide{width:min(100%,980px);height:calc(100dvh - 40px);max-height:calc(100dvh - 40px)}
+.modal-form--wide > .card{display:flex;flex-direction:column;box-sizing:border-box;height:100%;
+  overflow:hidden;gap:12px;margin:0}
+.modal-form--wide > .card > h2{margin:0}
+.modal-form--wide > .card > .note{margin:0}
+.modal-form--wide .field{flex:1;min-height:0;display:flex;flex-direction:column;margin:0}
+.modal-form--wide .row__actions{margin:0}
+.modal-form--wide .field .docedit{flex:1;min-height:0;height:auto;resize:none;
+  font-family:inherit;font-size:.95rem;line-height:1.6}
+.modal-form--wide .docview{flex:1;min-height:0;overflow:auto;margin:0;padding:14px 16px;
+  border:1.5px solid var(--line);border-radius:11px;background:#fff;
   white-space:pre-wrap;font-family:inherit;font-size:.95rem;line-height:1.6;color:var(--ink)}
+@media(max-width:560px){
+  .modal-form--wide{height:calc(100dvh - 16px);max-height:calc(100dvh - 16px)}
+}
