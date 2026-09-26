@@ -1278,9 +1278,13 @@ async function setup(site: number) {
 }
 
 // Що вже підключено. Жодних ключів і даних покупців — лише «так/ні» й адреса відправлення.
+// Позначка версії: після заливки функції одразу видно в ?check=, який саме
+// код у ній лежить. Міняти щоразу, коли віддаю файл власнику на деплой.
+const BUILD = "2026-09-26-2";
+
 async function check(site: number) {
   const npKey = await npKeyOf(site);
-  const out: Record<string, unknown> = { bot: !!(await tokenOf(site)), np_key: !!npKey };
+  const out: Record<string, unknown> = { build: BUILD, bot: !!(await tokenOf(site)), np_key: !!npKey };
   const s = await npSettings(site);
   out.np_settings = !!s;
   if (s) {
