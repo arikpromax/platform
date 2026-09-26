@@ -554,15 +554,25 @@ async function notify(id: number) {
     ? orderText(o, await shopName(o.site_id), t, "🧪 ТЕСТОВЕ замовлення") +
       "\n\nОплата тестова — гроші не списані, номер ТТН вигаданий. Справжня накладна тут сама не створюється."
     : orderText(o, await shopName(o.site_id), t);
+  /* Фото першої речі — щоб замовлення впізнавалось з одного погляду.
+     Знімки в webp, а Telegram бере його для фото не завжди, та й підпис
+     у нього не довший за 1024 символи. Тому це спроба: не вийшло —
+     надсилаємо звичайним текстом, як раніше, і замовлення не губиться. */
+  const photo = text.length <= 1024 ? await firstPhoto(o).catch(() => "") : "";
   const got_it: number[] = [];
   for (const chat of chats) {
-    const r = await tg(token, "sendMessage", {
-      chat_id: chat,
-      text,
-      parse_mode: "HTML",
-      link_preview_options: { is_disabled: true },
-      reply_markup: keys(o, t),
-    });
+    const common = { chat_id: chat, parse_mode: "HTML", reply_markup: keys(o, t) };
+    // deno-lint-ignore no-explicit-any
+    let r: any = photo
+      ? await tg(token, "sendPhoto", { ...common, photo, caption: text })
+      : { ok: false };
+    if (!r.ok) {
+      r = await tg(token, "sendMessage", {
+        ...common,
+        text,
+        link_preview_options: { is_disabled: true },
+      });
+    }
     if (r.ok) got_it.push(chat);
     // Бота заблокували або вигнали з групи — більше туди не стукаємо.
     else if (r.error_code === 403) {
@@ -1277,9 +1287,20 @@ async function setup(site: number) {
 }
 
 // Що вже підключено. Жодних ключів і даних покупців — лише «так/ні» й адреса відправлення.
+// Перше фото першої речі в замовленні. Адреса вже повна — саме такою її
+// зберігає адмінка, тож Telegram завантажить знімок сам.
+async function firstPhoto(o: Order): Promise<string> {
+  const id = Number(o.lines?.[0]?.item_id ?? 0);
+  if (!id) return "";
+  const [it] = await db(`items?id=eq.${id}&site_id=eq.${o.site_id}&select=image_url,extra`);
+  const first = it?.extra?.photos?.[0];
+  const url = String(first ?? it?.image_url ?? "");
+  return url.startsWith("http") ? url : "";
+}
+
 // Позначка версії: після заливки функції одразу видно в ?check=, який саме
 // код у ній лежить. Міняти щоразу, коли віддаю файл власнику на деплой.
-const BUILD = "2026-09-26-4";
+const BUILD = "2026-09-26-5";
 
 async function check(site: number) {
   const npKey = await npKeyOf(site);
