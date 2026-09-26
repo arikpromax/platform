@@ -436,7 +436,13 @@ function ttnLine(o: Order, t: Ttn) {
   }
 }
 
-function orderText(o: Order, shop: string, t: Ttn, head = "Нове замовлення") {
+function orderText(
+  o: Order,
+  shop: string,
+  t: Ttn,
+  head = "Нове замовлення",
+  info?: Map<number, ItemInfo>,
+) {
   const c = o.customer ?? {};
   const when = new Date(o.created_at).toLocaleString("uk-UA", {
     timeZone: "Europe/Kyiv",
@@ -447,11 +453,18 @@ function orderText(o: Order, shop: string, t: Ttn, head = "Нове замовл
   });
   const items = (o.lines ?? []).map((l, i) => {
     const qty = Number(l.qty) || 1;
+    const it = info?.get(Number(l.item_id));
+    /* Назва веде на сторінку товару, під нею артикул — щоб шукати річ
+       на складі й у програмі обліку, не відкриваючи сайт. */
+    const name = it?.link
+      ? `<a href="${esc(it.link)}">${esc(l.title)}</a>`
+      : esc(l.title);
     return (
-      `${i + 1}. ${esc(l.title)}` +
+      `${i + 1}. ${name}` +
       (l.size ? ` · <b>${esc(l.size)}</b>` : "") +
       (qty > 1 ? ` · ${qty} шт` : "") +
-      ` — ${money((Number(l.price) || 0) * qty)}`
+      ` — ${money((Number(l.price) || 0) * qty)}` +
+      (it?.sku ? `\nАртикул: <code>${esc(it.sku)}</code>` : "")
     );
   });
   const where = [c.city, c.branch].filter(Boolean).map(esc).join(", ");
@@ -546,19 +559,22 @@ async function notify(id: number) {
     : test
     ? demo()
     : await ensureTtn(o, false).catch((e) => ({ state: "error", why: String(e) }) as Ttn);
+  const info = await linesInfo(o).catch(() => new Map<number, ItemInfo>());
   const text = late
-    ? orderText(o, await shopName(o.site_id), t, "⚠️ Оплата після скасування") +
+    ? orderText(o, await shopName(o.site_id), t, "⚠️ Оплата після скасування", info) +
       "\n\nЗамовлення скасувалося, бо оплата йшла довше 10 хвилин, і товар повернувся на склад. " +
       "Перевірте наявність, поверніть замовлення в «Нове» в адмінці й створіть ТТН кнопкою."
     : test
-    ? orderText(o, await shopName(o.site_id), t, "🧪 ТЕСТОВЕ замовлення") +
+    ? orderText(o, await shopName(o.site_id), t, "🧪 ТЕСТОВЕ замовлення", info) +
       "\n\nОплата тестова — гроші не списані, номер ТТН вигаданий. Справжня накладна тут сама не створюється."
-    : orderText(o, await shopName(o.site_id), t);
+    : orderText(o, await shopName(o.site_id), t, undefined, info);
   /* Фото першої речі — щоб замовлення впізнавалось з одного погляду.
      Знімки в webp, а Telegram бере його для фото не завжди, та й підпис
      у нього не довший за 1024 символи. Тому це спроба: не вийшло —
      надсилаємо звичайним текстом, як раніше, і замовлення не губиться. */
-  const photo = text.length <= 1024 ? await firstPhoto(o).catch(() => "") : "";
+  const photo = text.length <= 1024
+    ? (info.get(Number(o.lines?.[0]?.item_id ?? 0))?.photo ?? "")
+    : "";
   const got_it: number[] = [];
   for (const chat of chats) {
     const common = { chat_id: chat, parse_mode: "HTML", reply_markup: keys(o, t) };
@@ -1287,20 +1303,32 @@ async function setup(site: number) {
 }
 
 // Що вже підключено. Жодних ключів і даних покупців — лише «так/ні» й адреса відправлення.
-// Перше фото першої речі в замовленні. Адреса вже повна — саме такою її
-// зберігає адмінка, тож Telegram завантажить знімок сам.
-async function firstPhoto(o: Order): Promise<string> {
-  const id = Number(o.lines?.[0]?.item_id ?? 0);
-  if (!id) return "";
-  const [it] = await db(`items?id=eq.${id}&site_id=eq.${o.site_id}&select=image_url,extra`);
-  const first = it?.extra?.photos?.[0];
-  const url = String(first ?? it?.image_url ?? "");
-  return url.startsWith("http") ? url : "";
+// Довідка по речах замовлення: артикул, фото й посилання на товар.
+// Адреси знімків зберігаються повними, тож адресу самого сайту беремо
+// з них — окремо її ніде не записано.
+type ItemInfo = { sku: string; photo: string; link: string };
+async function linesInfo(o: Order): Promise<Map<number, ItemInfo>> {
+  const out = new Map<number, ItemInfo>();
+  const ids = [...new Set((o.lines ?? []).map((l) => Number(l.item_id)).filter(Boolean))];
+  if (!ids.length) return out;
+  const rows = await db(
+    `items?id=in.(${ids.join(",")})&site_id=eq.${o.site_id}&select=id,image_url,extra`,
+  );
+  for (const r of rows) {
+    const photo = String(r.extra?.photos?.[0] ?? r.image_url ?? "");
+    const base = photo.startsWith("http") ? photo.split("/img/")[0] : "";
+    out.set(Number(r.id), {
+      sku: String(r.extra?.sku ?? ""),
+      photo: photo.startsWith("http") ? photo : "",
+      link: base && base !== photo ? `${base}/tovar.html?id=p${r.id}` : "",
+    });
+  }
+  return out;
 }
 
 // Позначка версії: після заливки функції одразу видно в ?check=, який саме
 // код у ній лежить. Міняти щоразу, коли віддаю файл власнику на деплой.
-const BUILD = "2026-09-26-5";
+const BUILD = "2026-09-26-6";
 
 async function check(site: number) {
   const npKey = await npKeyOf(site);
