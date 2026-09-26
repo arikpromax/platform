@@ -114,6 +114,9 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
 
   const [tab, setTab] = useState<string>(collections[0]?.key ?? "__texts"); // класичний режим
   // магазин відкривається на складі, звичайний сайт — на першому розділі
+  // текст, відкритий на весь екран, і чи показувати його як на сайті
+  const [bigKey, setBigKey] = useState<string | null>(null);
+  const [preview, setPreview] = useState(false);
   const [secIdx, setSecIdx] = useState(() => (site.config?.stock ? (site.config?.sections ?? []).length : 0));
   const [items, setItems] = useState<Item[]>([]); // класичний режим: активна колекція
   const [itemsByCol, setItemsByCol] = useState<Record<string, Item[]>>({}); // режим розділів
@@ -641,20 +644,31 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
 
   /* ---------- Рендер-помічники ---------- */
 
+  /* Довгий текст (оферта, політика) редагується у вікні на весь екран:
+     у віконці на три рядки такий документ не почитаєш. Там само видно,
+     як він виглядатиме на сайті — із підставленими реквізитами. */
   const renderTextField = (key: string) => {
     const d = textDefByKey(key);
     if (!d) return null;
+    const big = d.multiline && (texts[d.key] ?? "").length > 400;
     return (
       <div className="field" key={d.key}>
         <label htmlFor={`txt-${d.key}`}>{d.name}</label>
         {d.multiline ? (
-          <textarea
-            id={`txt-${d.key}`}
-            rows={3}
-            value={texts[d.key] ?? ""}
-            onChange={(e) => setTexts((prev) => ({ ...prev, [d.key]: e.target.value }))}
-            disabled={!canEdit}
-          />
+          <>
+            <textarea
+              id={`txt-${d.key}`}
+              rows={big ? 10 : 3}
+              value={texts[d.key] ?? ""}
+              onChange={(e) => setTexts((prev) => ({ ...prev, [d.key]: e.target.value }))}
+              disabled={!canEdit}
+            />
+            {big && (
+              <button className="btn btn--ghost btn--sm" onClick={() => setBigKey(d.key)}>
+                Відкрити на весь екран
+              </button>
+            )}
+          </>
         ) : (
           <input
             id={`txt-${d.key}`}
@@ -667,6 +681,19 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
       </div>
     );
   };
+
+  /* Реквізити підставляються в документ так само, як на сайті */
+  const fillTokens = (src: string) =>
+    String(src).replace(/\{\{(\w+)\}\}/g, (m, k) => {
+      const map: Record<string, string> = {
+        sellerName: texts["seller_name"] ?? "",
+        sellerCode: texts["seller_code"] ?? "",
+        sellerAddress: texts["seller_address"] ?? "",
+        email: texts["email"] ?? "",
+        phone: texts["phone"] ?? "",
+      };
+      return map[k] ? map[k] : m;
+    });
 
   /* Перемикач прапорця просто зі списку — без відкривання картки */
   const togglePick = async (item: Item, flag: string, on: boolean) => {
@@ -1215,6 +1242,66 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
         ) : (
           activeCol && <div className="card">{renderRows(activeCol, items)}</div>
         ))}
+
+      {/* ---------- Документ на весь екран ---------- */}
+      {bigKey && (
+        <div
+          className="cropper-veil"
+          onClick={(e) => { if (e.target === e.currentTarget && !busy) setBigKey(null); }}
+        >
+          <div className="modal-form modal-form--wide" role="dialog" aria-modal="true">
+            <div className="card">
+              <h2>{textDefByKey(bigKey)?.name ?? "Текст"}</h2>
+              <p className="note">
+                Рядок, що починається з ##, стає заголовком. Рядок із «- » — пунктом списку.
+                **Текст у зірочках** — жирний. Замість {"{{sellerName}}"}, {"{{sellerCode}}"},{" "}
+                {"{{sellerAddress}}"}, {"{{email}}"} і {"{{phone}}"} на сайті підставляються
+                реквізити з розділу «Контакти й підвал».
+              </p>
+              <div className="groups__row">
+                <button
+                  className={"chip" + (preview ? "" : " chip--on")}
+                  onClick={() => setPreview(false)}
+                >
+                  Редагувати
+                </button>
+                <button
+                  className={"chip" + (preview ? " chip--on" : "")}
+                  onClick={() => setPreview(true)}
+                >
+                  Як буде на сайті
+                </button>
+              </div>
+              {preview
+                ? (
+                  <pre className="docview">{fillTokens(texts[bigKey] ?? "")}</pre>
+                )
+                : (
+                  <div className="field">
+                    <textarea
+                      className="docedit"
+                      value={texts[bigKey] ?? ""}
+                      onChange={(e) => setTexts((prev) => ({ ...prev, [bigKey]: e.target.value }))}
+                      disabled={!canEdit}
+                    />
+                  </div>
+                )}
+              <div className="row__actions">
+                <button
+                  className="btn btn--primary btn--sm"
+                  disabled={busy || !canEdit}
+                  onClick={async () => { await saveTexts([bigKey]); setBigKey(null); }}
+                >
+                  {busy ? "Зберігаю…" : "Зберегти й закрити"}
+                </button>
+                <button className="btn btn--ghost btn--sm" disabled={busy} onClick={() => setBigKey(null)}>
+                  Закрити
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ---------- Форма редагування ----------
            Вікном поверх списку, а не блоком унизу сторінки:
