@@ -36,7 +36,10 @@ const KEYS: { name: string; title: string; hint: string }[] = [
   {
     name: "MONO_TOKEN",
     title: "Токен monobank для оплати карткою",
-    hint: "Кабінет monobank для бізнесу → Еквайринг → API-токен. Цей токен нікому не показуйте.",
+    hint:
+      "Робочий токен — у кабінеті web.monobank.ua (потрібен еквайринг). " +
+      "Тестовий — на api.monobank.ua, його видають будь-якому клієнту банку без еквайрингу. " +
+      "Токен нікому не показуйте.",
   },
   {
     name: "SYNC_KEY",
