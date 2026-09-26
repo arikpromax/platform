@@ -568,19 +568,30 @@ async function notify(id: number) {
     ? orderText(o, await shopName(o.site_id), t, "🧪 ТЕСТОВЕ замовлення", info) +
       "\n\nОплата тестова — гроші не списані, номер ТТН вигаданий. Справжня накладна тут сама не створюється."
     : orderText(o, await shopName(o.site_id), t, undefined, info);
-  /* Фото першої речі — щоб замовлення впізнавалось з одного погляду.
-     Знімки в webp, а Telegram бере його для фото не завжди, та й підпис
-     у нього не довший за 1024 символи. Тому це спроба: не вийшло —
-     надсилаємо звичайним текстом, як раніше, і замовлення не губиться. */
-  const photo = text.length <= 1024
-    ? (info.get(Number(o.lines?.[0]?.item_id ?? 0))?.photo ?? "")
-    : "";
+  /* Фото кожної речі із замовлення — щоб було видно, що саме взяли.
+     Одна річ: знімок із підписом і кнопками — одне повідомлення.
+     Кілька: спершу альбом, за ним текст із кнопками (у альбому кнопок
+     не буває). Знімки в webp, і Telegram бере його не завжди, тож це
+     завжди спроба: не вийшло — приходить текст, як раніше. */
+  const shots = [
+    ...new Set(
+      (o.lines ?? [])
+        .map((l) => info.get(Number(l.item_id))?.photo ?? "")
+        .filter(Boolean),
+    ),
+  ].slice(0, 10);
   const got_it: number[] = [];
   for (const chat of chats) {
     const common = { chat_id: chat, parse_mode: "HTML", reply_markup: keys(o, t) };
+    if (shots.length > 1) {
+      await tg(token, "sendMediaGroup", {
+        chat_id: chat,
+        media: shots.map((u) => ({ type: "photo", media: u })),
+      });
+    }
     // deno-lint-ignore no-explicit-any
-    let r: any = photo
-      ? await tg(token, "sendPhoto", { ...common, photo, caption: text })
+    let r: any = shots.length === 1 && text.length <= 1024
+      ? await tg(token, "sendPhoto", { ...common, photo: shots[0], caption: text })
       : { ok: false };
     if (!r.ok) {
       r = await tg(token, "sendMessage", {
@@ -1328,7 +1339,7 @@ async function linesInfo(o: Order): Promise<Map<number, ItemInfo>> {
 
 // Позначка версії: після заливки функції одразу видно в ?check=, який саме
 // код у ній лежить. Міняти щоразу, коли віддаю файл власнику на деплой.
-const BUILD = "2026-09-26-6";
+const BUILD = "2026-09-26-7";
 
 async function check(site: number) {
   const npKey = await npKeyOf(site);
