@@ -23,6 +23,7 @@ type Settings = {
   description: string;
   auto: boolean;
   pay_provider: string;
+  pay_test: boolean;
   weight_default: number;
 };
 
@@ -33,19 +34,9 @@ const KEYS: { name: string; title: string; hint: string }[] = [
     hint: "Кабінет НП → Налаштування → Безпека → API-ключі. Потрібен, щоб сайт сам створював ТТН.",
   },
   {
-    name: "LIQPAY_PUBLIC",
-    title: "LiqPay: public key",
-    hint: "Кабінет LiqPay → Налаштування → API. Тестові ключі починаються з sandbox_.",
-  },
-  {
-    name: "LIQPAY_PRIVATE",
-    title: "LiqPay: private key",
-    hint: "Там само. Цей ключ нікому не показуйте.",
-  },
-  {
     name: "MONO_TOKEN",
-    title: "MonoPay: токен",
-    hint: "Особистий кабінет monobank для бізнесу → Еквайринг → API-токен.",
+    title: "Токен monobank для оплати карткою",
+    hint: "Кабінет monobank для бізнесу → Еквайринг → API-токен. Цей токен нікому не показуйте.",
   },
   {
     name: "SYNC_KEY",
@@ -263,12 +254,28 @@ export default function ConnectAdmin({ site, canEdit }: { site: Site; canEdit: b
               disabled={!canEdit || busy}
               onChange={(e) => saveSettings({ pay_provider: e.target.value })}
             >
-              <option value="liqpay">LiqPay</option>
-              <option value="mono">MonoPay</option>
+              <option value="mono">monobank</option>
               <option value="off">Вимкнено</option>
             </select>
             <p className="fhint">
-              Оплата зʼявиться на сайті, щойно будуть вписані ключі обраного сервісу.
+              Оплата зʼявиться на сайті, щойно буде вписаний токен monobank.
+            </p>
+          </div>
+          <div className="field">
+            <label htmlFor="pay-test">Тестовий токен</label>
+            <select
+              id="pay-test"
+              value={set.pay_test ? "1" : "0"}
+              disabled={!canEdit || busy}
+              onChange={(e) => saveSettings({ pay_test: e.target.value === "1" })}
+            >
+              <option value="0">Ні, це справжня оплата</option>
+              <option value="1">Так, перевірка — гроші не списуються</option>
+            </select>
+            <p className="fhint">
+              З тестовим токеном на сайті при оплаті написано, що гроші не списуються, а в
+              Telegram замовлення позначається як тестове й накладна сама не створюється.
+              Отримали робочий токен — поставте «Ні».
             </p>
           </div>
           <div className="field">

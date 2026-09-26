@@ -143,7 +143,8 @@ type NpSet = {
   sender_phone: string;
   cod_mode: string;
   description: string;
-  pay_provider: string;   // liqpay | mono | off — обирають в адмінці
+  pay_provider: string;   // mono | off — обирають в адмінці
+  pay_test: boolean;      // тестовий токен: гроші не рухаються
   weight_default: number; // вага, коли в товару своєї немає
 };
 
@@ -513,7 +514,7 @@ async function notify(id: number) {
 
   const release = () => patchOrder(id, { tg_sent_at: null });
 
-  // Оплата карткою: замовлення приходить у Telegram лише тоді, коли LiqPay
+  // Оплата карткою: замовлення приходить у Telegram лише тоді, коли банк
   // підтвердив гроші. Неоплачене через 10 хвилин база скасує сама.
   if (o.customer?.payId === "online" && o.pay_state !== "paid") {
     await release();
@@ -522,7 +523,7 @@ async function notify(id: number) {
   // Гроші прийшли вже після автоскасування: товар повернули на склад,
   // тож накладну не робимо — власник спершу перевірить наявність.
   const late = o.status === "cancelled";
-  // Тестова оплата LiqPay (sandbox): гроші не рухались, тож і накладну сама не робимо
+  // Тестова оплата: гроші не рухались, тож і накладну сама не робимо
   const test = !!o.pay_info?.test;
 
   const token = await tokenOf(o.site_id);
@@ -1056,15 +1057,15 @@ async function liqSign(priv: string, data: string) {
   return btoa(String.fromCharCode(...new Uint8Array(buf)));
 }
 
-// Чи показувати на сайті «Карткою на сайті». Тестові ключі (sandbox_…) сайт
-// показує лише тому, хто сам увімкнув перевірку, — інакше справжній покупець
-// «оплатив» би тестовою карткою.
+// Чи показувати на сайті «Карткою на сайті» і чи писати покупцеві, що це
+// перевірка. Тестовий режим вмикають в адмінці разом із тестовим токеном:
+// інакше людина заплатила б тестовою карткою й думала, що замовлення оплачене.
 async function payOn(site: number) {
   const s = await npSettings(site);
-  const how = s?.pay_provider ?? "liqpay";
+  const how = s?.pay_provider ?? "mono";
   if (how === "off") return { online: false, sandbox: false, how };
   if (how === "mono") {
-    return { online: !!(await keyOf(site, "MONO_TOKEN")), sandbox: false, how };
+    return { online: !!(await keyOf(site, "MONO_TOKEN")), sandbox: !!s?.pay_test, how };
   }
   const { pub, priv } = await liqOf(site);
   return { online: !!(pub && priv), sandbox: pub.startsWith("sandbox_"), how };
@@ -1167,7 +1168,7 @@ async function monoCallback(site: number, req: Request) {
   const info = {
     how: "mono", status: String(inv?.status ?? ""), invoiceId: id,
     amount: paid, currency: "UAH", card: inv?.paymentInfo?.maskedPan ?? "",
-    test: false, at: new Date().toISOString(),
+    test: !!(await npSettings(site))?.pay_test, at: new Date().toISOString(),
   };
   if (inv?.status === "success") {
     if (paid + 0.01 < Number(o.total)) {
