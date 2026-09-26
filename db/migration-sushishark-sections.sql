@@ -340,3 +340,160 @@ set config = jsonb_set(
   )
 )
 where s.id = 3;
+
+-- ---------- 13) Гратіси: напої та соуси окремо від «Промо» ----------
+--  • «Промо» тепер означає лише «показувати першою» і більше не дає
+--    двох напоїв автоматично — кількість задається явно тут
+--  • поруч зʼявляється така сама кількість безкоштовних соусів
+--  • обидва поля переїжджають униз, до решти налаштувань напоїв
+update public.sites s
+set config = jsonb_set(
+  s.config,
+  '{collections}',
+  (
+    select jsonb_agg(
+      case when c->>'key' = 'menu' then jsonb_set(c, '{fields}', m.arr) else c end
+      order by idx
+    )
+    from jsonb_array_elements(s.config->'collections') with ordinality as t(c, idx)
+    left join lateral (
+      select jsonb_agg(f order by pos, i) as arr
+      from (
+        select
+          case when f->>'key' = 'drinks' then '{"key":"drinks","name":"Безкоштовних напоїв","type":"select","extra":true,"options":[{"value":"","label":"Немає"},{"value":"1","label":"1 напій"},{"value":"2","label":"2 напої"},{"value":"3","label":"3 напої"},{"value":"4","label":"4 напої"}],"hint":"Скільки напоїв гість отримає безкоштовно до цієї страви. При додаванні в кошик сайт попросить обрати саме стільки. «Немає» — напоїв не дається."}'::jsonb
+               else f end as f,
+          i,
+          case f->>'key'
+            when 'title' then 1   when 'price' then 2   when 'sale_price' then 3
+            when 'image' then 4   when 'cat' then 5     when 'pcs' then 6
+            when 'vol' then 7     when 'spicy' then 8   when 'veg' then 9
+            when 'promo' then 10  when 'pl' then 11     when 'ua' then 12
+            when 'en' then 13     when 'img' then 14
+            when 'out' then 15    when 'neu' then 16
+            when 'day_from' then 17 when 'day_to' then 18
+            when 'show_from' then 19 when 'show_to' then 20
+            when 'drink_price' then 21 when 'drink_list' then 22
+            when 'drinks' then 23 when 'sauces' then 24
+            else 100 + i
+          end as pos
+        from jsonb_array_elements(c->'fields') with ordinality t1(f, i)
+      ) z
+    ) m on c->>'key' = 'menu'
+  )
+)
+where s.id = 3;
+
+-- Поле «Безкоштовних соусів» — додаємо, якщо його ще немає
+update public.sites s
+set config = jsonb_set(
+  s.config,
+  '{collections}',
+  (
+    select jsonb_agg(
+      case
+        when c->>'key' = 'menu' and not (c->'fields' @> '[{"key":"sauces"}]'::jsonb)
+        then jsonb_set(c, '{fields}', (c->'fields') || '[
+               {"key":"sauces","name":"Безкоштовних соусів","type":"select","extra":true,
+                "options":[{"value":"","label":"Немає"},
+                           {"value":"1","label":"1 соус"},
+                           {"value":"2","label":"2 соуси"},
+                           {"value":"3","label":"3 соуси"},
+                           {"value":"4","label":"4 соуси"}],
+                "hint":"Скільки соусів гість отримає безкоштовно до цієї страви. Обирає їх сам при додаванні в кошик, зі списку соусів меню. «Немає» — соусів не дається."}
+             ]'::jsonb)
+        else c
+      end
+      order by idx
+    )
+    from jsonb_array_elements(s.config->'collections') with ordinality as t(c, idx)
+  )
+)
+where s.id = 3;
+
+-- Підпис «Промо» більше не обіцяє напоїв
+update public.sites s
+set config = jsonb_set(
+  s.config,
+  '{collections}',
+  (
+    select jsonb_agg(
+      case when c->>'key' = 'menu' then jsonb_set(c, '{fields}', (
+        select jsonb_agg(
+          case when f->>'key' = 'promo'
+               then f || '{"name":"Промо (показувати першою)","hint":"Страва стає першою в меню і отримує помаранчеву плашку. На напої та соуси це не впливає — їх кількість задається нижче."}'::jsonb
+               else f end
+          order by i)
+        from jsonb_array_elements(c->'fields') with ordinality t1(f, i)
+      )) else c end
+      order by idx
+    )
+    from jsonb_array_elements(s.config->'collections') with ordinality as t(c, idx)
+  )
+)
+where s.id = 3;
+
+-- ---------- 14) Які соуси пропонувати ----------
+-- Такий самий список галочок, як у напоїв, але з розділу «Соуси».
+-- Нічого не позначено — гість обирає з усіх соусів меню.
+-- Заразом уточнюємо підпис списку напоїв: він діє і на безкоштовні.
+update public.sites s
+set config = jsonb_set(
+  s.config,
+  '{collections}',
+  (
+    select jsonb_agg(
+      case
+        when c->>'key' = 'menu' and not (c->'fields' @> '[{"key":"sauce_list"}]'::jsonb)
+        then jsonb_set(c, '{fields}', (c->'fields') || '[
+               {"type":"multi-collection","key":"sauce_list","name":"Які соуси пропонувати","extra":true,
+                "from":"menu","whereExtra":{"key":"cat","value":"sosy"},
+                "hint":"Позначте соуси, які гість зможе обрати. Нічого не позначено — доступні всі соуси меню. Працює разом із кількістю безкоштовних соусів вище."}
+             ]'::jsonb)
+        else c
+      end
+      order by idx
+    )
+    from jsonb_array_elements(s.config->'collections') with ordinality as t(c, idx)
+  )
+)
+where s.id = 3;
+
+-- Ставимо список соусів одразу під кількістю, а список напоїв — під їхньою
+update public.sites s
+set config = jsonb_set(
+  s.config,
+  '{collections}',
+  (
+    select jsonb_agg(
+      case when c->>'key' = 'menu' then jsonb_set(c, '{fields}', m.arr) else c end
+      order by idx
+    )
+    from jsonb_array_elements(s.config->'collections') with ordinality as t(c, idx)
+    left join lateral (
+      select jsonb_agg(f order by pos, i) as arr
+      from (
+        select
+          case when f->>'key' = 'drink_list'
+               then f || '{"hint":"Позначте напої, які гість зможе обрати. Нічого не позначено — доступні всі напої меню. Діє і на платний напій, і на безкоштовні."}'::jsonb
+               else f end as f,
+          i,
+          case f->>'key'
+            when 'title' then 1   when 'price' then 2   when 'sale_price' then 3
+            when 'image' then 4   when 'cat' then 5     when 'pcs' then 6
+            when 'vol' then 7     when 'spicy' then 8   when 'veg' then 9
+            when 'promo' then 10  when 'pl' then 11     when 'ua' then 12
+            when 'en' then 13     when 'img' then 14
+            when 'out' then 15    when 'neu' then 16
+            when 'day_from' then 17 when 'day_to' then 18
+            when 'show_from' then 19 when 'show_to' then 20
+            when 'drink_price' then 21
+            when 'drinks' then 22 when 'drink_list' then 23
+            when 'sauces' then 24 when 'sauce_list' then 25
+            else 100 + i
+          end as pos
+        from jsonb_array_elements(c->'fields') with ordinality t1(f, i)
+      ) z
+    ) m on c->>'key' = 'menu'
+  )
+)
+where s.id = 3;

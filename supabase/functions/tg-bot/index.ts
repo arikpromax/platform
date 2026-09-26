@@ -1160,7 +1160,20 @@ async function payStart(id: number, back: string) {
       body: JSON.stringify({
         amount: Math.round(amount * 100),          // monobank рахує в копійках
         ccy: 980,
-        merchantPaymInfo: { reference: tail, destination: `Замовлення ${o.ref} · ${shop}` },
+        merchantPaymInfo: {
+          reference: tail,
+          destination: `Замовлення ${o.ref} · ${shop}`,
+          /* Перелік речей потрібен фіскальному чеку: коли власник звʼяже
+             свій кабінет із ПРРО, чек виписується з цих рядків. Без них
+             банк не має з чого його зібрати. Суми — в копійках. */
+          basketOrder: (o.lines ?? []).map((l) => ({
+            name: String(l.title ?? "Товар").slice(0, 128),
+            qty: Number(l.qty) || 1,
+            sum: Math.round((Number(l.price) || 0) * (Number(l.qty) || 1) * 100),
+            unit: "шт",
+            code: String(l.item_id ?? ""),
+          })),
+        },
         redirectUrl: result_url || undefined,
         webHookUrl: `${HOOK}?mono=${o.site_id}`,
         validity: 900,
@@ -1339,7 +1352,7 @@ async function linesInfo(o: Order): Promise<Map<number, ItemInfo>> {
 
 // Позначка версії: після заливки функції одразу видно в ?check=, який саме
 // код у ній лежить. Міняти щоразу, коли віддаю файл власнику на деплой.
-const BUILD = "2026-09-26-7";
+const BUILD = "2026-09-26-8";
 
 async function check(site: number) {
   const npKey = await npKeyOf(site);
