@@ -1073,10 +1073,23 @@ async function payOn(site: number) {
 
 // MonoPay: створюємо рахунок і відправляємо покупця на сторінку monobank.
 // Статус оплати потім перепитуємо в них самих — так підробити його не вийде.
+// Кирилицю в запиті віддаємо \u-втечами: monobank читає тіло як однобайтове
+// кодування, і «Замовлення 2609-0018» перетворювалось на «Р—Р°РјРѕРІ…» на
+// сторінці оплати. З втечами в запиті самі латинські символи, а їхній розбір
+// JSON повертає ті самі літери.
+const monoAscii = (s: string) =>
+  s.replace(/[^\x20-\x7E]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
+
 async function mono(token: string, path: string, init: RequestInit = {}) {
+  const body = typeof init.body === "string" ? monoAscii(init.body) : init.body;
   const r = await fetch("https://api.monobank.ua/api/merchant/" + path, {
     ...init,
-    headers: { "X-Token": token, "Content-Type": "application/json", ...(init.headers ?? {}) },
+    body,
+    headers: {
+      "X-Token": token,
+      "Content-Type": "application/json; charset=utf-8",
+      ...(init.headers ?? {}),
+    },
   });
   const j = await r.json().catch(() => null);
   if (!r.ok) throw new Error("monobank " + r.status + ": " + JSON.stringify(j).slice(0, 200));
