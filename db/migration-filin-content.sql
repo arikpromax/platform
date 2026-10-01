@@ -33,6 +33,8 @@ update public.sites set config = '{
          "hint": "Рядок під назвою на картці. Наприклад: До 2 гостей · двоспальне ліжко"},
         {"type": "textarea", "key": "text", "name": "Опис номера", "extra": true,
          "hint": "Абзац на сторінці номера, під заголовком «Про номер»."},
+        {"type": "text", "key": "page", "name": "Своя сторінка номера", "extra": true,
+         "hint": "Файл сторінки, напр. standart.html. Порожньо — картка просто не веде нікуди, але забронювати номер усе одно можна. Нові сторінки робить розробник."},
         {"type": "text", "key": "key", "name": "Технічний код — не міняйте", "extra": true,
          "hint": "За ним сайт звʼязує номер із бронями. Зміните — старі броні загубляться."}
       ]
@@ -404,5 +406,19 @@ from s, (values
 where not exists (
   select 1 from public.items i, s
   where i.site_id = s.id and i.collection in ('menu', 'mcats'));
+
+-- ---------- 7) Сторінки номерів, які вже є у сайті ----------
+update public.items i set extra = i.extra || jsonb_build_object('page', v.page)
+from (values
+  ('odnomisnyi', 'odnomisnyi.html'),
+  ('standart', 'standart.html'),
+  ('tvin', 'tvin.html'),
+  ('lyuks', 'lyuks.html'),
+  ('simeinyi', 'simeinyi.html')
+) as v(key, page)
+where i.collection = 'rooms'
+  and i.extra->>'key' = v.key
+  and i.site_id = (select id from public.sites where slug = 'filin')
+  and coalesce(i.extra->>'page', '') = '';
 
 select 'Готово. Тепер з адмінки редагується весь сайт.' as "крок 2";
