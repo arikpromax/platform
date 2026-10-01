@@ -73,6 +73,8 @@ export type SiteConfig = {
   stock?: boolean;
   stockCollection?: string; // колекція товарів, типово products
   stockSizes?: string; // поле в extra зі списком розмірів, типово sizes
+  // true — у адмінці зʼявляється вкладка «Бронювання» (готелі, номери)
+  booking?: boolean;
   // true — вкладка «Підключення»: ключі Нової Пошти, оплати й обміну зі складом
   connect?: boolean;
 };
@@ -161,6 +163,32 @@ export type Order = {
   np_return_ttn?: string;
   pay_state?: string;
   pay_info?: { amount?: number; test?: boolean; card?: string };
+};
+
+/* ---------- Бронювання номерів ---------- */
+
+// Заявка з сайту або бронь, записана власником телефоном.
+// Дата в календарі на сайті стає зайнятою, коли розібрали всі
+// номери цього типу (їхня кількість — у items.extra.units).
+export type Booking = {
+  id: number;
+  site_id: number;
+  ref: string;                 // номер для гостя: F-0110-234
+  room_key: string;            // технічний код номера
+  room_name: string;           // як номер звався на момент броні
+  rooms_count: number;
+  date_in: string;             // 2026-10-04
+  date_out: string;
+  adults: number;
+  children: number;
+  guest: { name?: string; phone?: string; via?: string; note?: string };
+  extras: { sauna?: { day?: string; time?: string; hours?: number } };
+  total: number;
+  status: string;              // new | confirmed | cancelled
+  note: string;
+  source: string;              // site | phone | other
+  created_at: string;
+  updated_at: string;
 };
 
 export type Profile = {

@@ -14,6 +14,7 @@ import {
 import ItemForm, { type Option } from "@/components/ItemForm";
 import StockAdmin from "@/components/StockAdmin";
 import OrdersAdmin from "@/components/OrdersAdmin";
+import BookingsAdmin from "@/components/BookingsAdmin";
 import ConnectAdmin from "@/components/ConnectAdmin";
 
 type Notice = { kind: "ok" | "err"; text: string } | null;
@@ -100,6 +101,9 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
   const hasStock = Boolean(site.config?.stock);
   const stockIdx = sections.length; // вкладки складу йдуть після розділів сайту
   const ordersIdx = sections.length + 1;
+  // Бронювання номерів: умикається прапорцем booking у конфігу сайту
+  const hasBooking = Boolean(site.config?.booking);
+  const bookingIdx = sections.length + 3;
   // «Підключення»: ключі й налаштування відправника, лише де це ввімкнено
   const hasConnect = Boolean(site.config?.connect);
   const connectIdx = sections.length + 2;
@@ -1044,6 +1048,17 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
         {useSections
           ? (
             <>
+              {hasBooking && (
+                <>
+                  <button
+                    className={`tab${secIdx === bookingIdx ? " on" : ""}`}
+                    onClick={() => setSecIdx(bookingIdx)}
+                  >
+                    Бронювання
+                  </button>
+                  <span className="tabs__split" aria-hidden="true" />
+                </>
+              )}
               {hasStock && (
                 <>
                   <button
@@ -1223,6 +1238,9 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
       )}
       {hasConnect && (useSections ? secIdx === connectIdx : tab === "__connect") && (
         <ConnectAdmin site={site} canEdit={canEdit} />
+      )}
+      {hasBooking && (useSections ? secIdx === bookingIdx : tab === "__booking") && (
+        <BookingsAdmin site={site} canEdit={canEdit} />
       )}
 
       {/* ---------- Класичний режим ---------- */}
