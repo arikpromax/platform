@@ -23,8 +23,8 @@ update public.sites set config = '{
          "hint": "Так його бачить гість. Наприклад: Стандарт"},
         {"type": "text", "key": "price", "name": "Ціна за ніч, грн",
          "hint": "Саме число, без слова «грн». Порожньо або 0 — на сайті буде «Ціну уточнимо»."},
-        {"type": "image", "key": "image", "name": "Головне фото номера",
-         "hint": "Показується на картці на головній. Немає фото — сайт малює світлу заглушку."},
+        {"type": "images", "key": "photos", "name": "Фото номера", "extra": true,
+         "hint": "Перше фото — головне: саме воно стоїть на картці на головній. Решту гість погортає на сторінці номера. Порядок міняється стрілочками, зайве прибирається хрестиком."},
         {"type": "text", "key": "units", "name": "Скільки таких номерів", "extra": true,
          "hint": "Найважливіше поле для календаря. Якщо номерів «Стандарт» у вас три — пишіть 3, і дата стане зайнятою лише коли розберуть усі три. Порожньо — вважаємо, що один."},
         {"type": "text", "key": "cap", "name": "Скільки гостей уміщує", "extra": true,
@@ -43,10 +43,8 @@ update public.sites set config = '{
       "fields": [
         {"type": "text", "key": "title", "name": "Назва альбому",
          "hint": "Підпис на картці. Наприклад: Зал кафе"},
-        {"type": "image", "key": "image", "name": "Обкладинка",
-         "hint": "Перше фото альбому — воно ж видно на картці в галереї."},
-        {"type": "images", "key": "photos", "name": "Решта фото альбому", "extra": true,
-         "hint": "Їх гість погортає, коли відкриє альбом. Сайт сам порахує, скільки знімків, і напише це на картці."},
+        {"type": "images", "key": "photos", "name": "Фото альбому", "extra": true,
+         "hint": "Перше фото стоїть на картці в галереї, решту гість погортає, коли її відкриє. Сайт сам порахує знімки й напише це на картці."},
         {"type": "text", "key": "icon", "name": "Значок, поки фото немає", "extra": true,
          "hint": "cup — чашка, dish — страва, sauna — сауна, billiard — куля, sun — сонце, moon — місяць, bed — ліжко."}
       ]
@@ -96,9 +94,8 @@ update public.sites set config = '{
       "noDelete": true,
       "fields": [
         {"type": "text", "key": "title", "name": "Службова назва — не міняйте"},
-        {"type": "image", "key": "image", "name": "Фото",
-         "hint": "Горизонтальне, не менше 2400 пікселів завширшки — воно розтягується на весь екран."},
-        {"type": "text", "key": "slot", "name": "Слот — не міняйте", "extra": true}
+        {"type": "images", "key": "photos", "name": "Фото на весь екран", "extra": true,
+         "hint": "Вони змінюють одне одного кожні кілька секунд. Горизонтальні, не менше 2400 пікселів завширшки. Порядок міняється стрілочками."}
       ]
     }
   ],
@@ -188,8 +185,8 @@ update public.sites set config = '{
     {
       "name": "1. Перший екран",
       "note": "Те, що гість бачить першим: фото на весь екран і написи, які проявляються, поки він гортає.",
-      "texts": ["hero_top", "hero_script", "hero_place", "hero_lead1", "hero_next1", "hero_lead2", "hero_next2", "hero_lead3"],
-      "photos": ["hero1", "hero2"]
+      "collections": ["site_photos"],
+      "texts": ["hero_top", "hero_script", "hero_place", "hero_lead1", "hero_next1", "hero_lead2", "hero_next2", "hero_lead3"]
     },
     {
       "name": "2. Номери й ціни",
@@ -310,13 +307,18 @@ from s, (values
 on conflict (site_id, key) do nothing;
 
 -- ---------- 3) Фото першого екрана ----------
+--  Раніше фото першого екрана були двома окремими слотами. Тепер це
+--  один рядок зі списком знімків, тож порожні слоти прибираємо.
+delete from public.items
+where collection = 'site_photos'
+  and site_id = (select id from public.sites where slug = 'filin')
+  and extra ? 'slot'
+  and coalesce(image_url, '') = '';
+
 with s as (select id from public.sites where slug = 'filin')
 insert into public.items (site_id, collection, title, extra, sort_order)
-select s.id, v.collection, v.title, v.extra::jsonb, v.sort_order
-from s, (values
-  ('site_photos', 'Фото 1', '{"slot":"hero1"}', 1),
-  ('site_photos', 'Фото 2', '{"slot":"hero2"}', 2)
-) as v(collection, title, extra, sort_order)
+select s.id, 'site_photos', 'Фото першого екрана', '{"photos":[]}'::jsonb, 1
+from s
 where not exists (
   select 1 from public.items i, s
   where i.site_id = s.id and i.collection = 'site_photos');
