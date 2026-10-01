@@ -5,3 +5,7 @@ project_id = "ortiatyxntdikaldepbp"
 # хто до неї стукає (підпис Telegram або номер замовлення з бази).
 [functions.tg-bot]
 verify_jwt = false
+
+# Бронювання номерів: окремий бот, окрема функція.
+[functions.tg-filin]
+verify_jwt = false

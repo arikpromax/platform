@@ -139,7 +139,7 @@ language plpgsql security definer set search_path = public as
 $fn$
 begin
   perform net.http_post(
-    url     := 'https://ortiatyxntdikaldepbp.supabase.co/functions/v1/tg-bot',
+    url     := 'https://ortiatyxntdikaldepbp.supabase.co/functions/v1/tg-filin',
     body    := jsonb_build_object('booking', p_booking),
     headers := '{"Content-Type": "application/json"}'::jsonb
   );
