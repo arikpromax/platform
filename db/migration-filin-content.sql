@@ -33,10 +33,32 @@ update public.sites set config = '{
          "hint": "Рядок під назвою на картці. Наприклад: До 2 гостей · двоспальне ліжко"},
         {"type": "textarea", "key": "text", "name": "Опис номера", "extra": true,
          "hint": "Абзац на сторінці номера, під заголовком «Про номер»."},
-        {"type": "text", "key": "page", "name": "Своя сторінка номера", "extra": true,
-         "hint": "Файл сторінки, напр. standart.html. Порожньо — картка просто не веде нікуди, але забронювати номер усе одно можна. Нові сторінки робить розробник."},
-        {"type": "text", "key": "key", "name": "Технічний код — не міняйте", "extra": true,
-         "hint": "За ним сайт звʼязує номер із бронями. Зміните — старі броні загубляться."}
+        {"type": "text", "key": "beds", "name": "Ліжка", "extra": true,
+         "hint": "Як на сторінці номера після слова «Ліжка:». Наприклад: двоспальне ліжко"},
+        {"type": "multi-collection", "key": "amenities", "name": "Що є в цьому номері", "extra": true,
+         "from": "amenities",
+         "hint": "Поставте галочки — саме вони зʼявляться на сторінці номера в блоці «Зручності». Список зручностей — нижче в цій же вкладці: додасте туди нову, і вона зʼявиться тут галочкою."}
+      ],
+      "autoKey": "key"
+    },
+    {
+      "key": "amenities",
+      "name": "Зручності (список для галочок)",
+      "fields": [
+        {"type": "text", "key": "title", "name": "Назва",
+         "hint": "Коротко, як побачить гість. Наприклад: Холодильник"},
+        {"type": "select", "key": "group", "name": "Розділ", "extra": true,
+         "options": [
+           {"value": "Ванна кімната", "label": "Ванна кімната"},
+           {"value": "Спальня", "label": "Спальня"},
+           {"value": "Інтернет", "label": "Інтернет"},
+           {"value": "Медіа", "label": "Медіа"},
+           {"value": "Кухня", "label": "Кухня"},
+           {"value": "Інше", "label": "Інше"}
+         ],
+         "hint": "Під яким заголовком показати на сторінці номера. Значок розділу сайт підставить сам."},
+        {"type": "checkbox", "key": "top", "name": "Показувати плиткою вгорі сторінки номера", "extra": true,
+         "hint": "Для найголовнішого — як «Окрема ванна кімната» чи «Телевізор». Решта стоїть лише в списку зручностей."}
       ]
     },
     {
@@ -46,9 +68,7 @@ update public.sites set config = '{
         {"type": "text", "key": "title", "name": "Назва альбому",
          "hint": "Підпис на картці. Наприклад: Зал кафе"},
         {"type": "images", "key": "photos", "name": "Фото альбому", "extra": true,
-         "hint": "Перше фото стоїть на картці в галереї, решту гість погортає, коли її відкриє. Сайт сам порахує знімки й напише це на картці."},
-        {"type": "text", "key": "icon", "name": "Значок, поки фото немає", "extra": true,
-         "hint": "cup — чашка, dish — страва, sauna — сауна, billiard — куля, sun — сонце, moon — місяць, bed — ліжко."}
+         "hint": "Перше фото стоїть на картці в галереї, решту гість погортає, коли її відкриє. Сайт сам порахує знімки й напише це на картці."}
       ]
     },
     {
@@ -95,7 +115,6 @@ update public.sites set config = '{
       "noAdd": true,
       "noDelete": true,
       "fields": [
-        {"type": "text", "key": "title", "name": "Службова назва — не міняйте"},
         {"type": "images", "key": "photos", "name": "Фото на весь екран", "extra": true,
          "hint": "Вони змінюють одне одного кожні кілька секунд. Горизонтальні, не менше 2400 пікселів завширшки. Порядок міняється стрілочками."}
       ]
@@ -185,56 +204,56 @@ update public.sites set config = '{
   ],
   "sections": [
     {
-      "name": "1. Перший екран",
+      "name": "Перший екран",
       "note": "Те, що гість бачить першим: фото на весь екран і написи, які проявляються, поки він гортає.",
       "collections": ["site_photos"],
       "texts": ["hero_top", "hero_script", "hero_place", "hero_lead1", "hero_next1", "hero_lead2", "hero_next2", "hero_lead3"]
     },
     {
-      "name": "2. Номери й ціни",
+      "name": "Номери й ціни",
       "note": "Ціна за ніч, місткість і — найголовніше — скільки таких номерів у вас фізично. Саме від цього числа календар вирішує, чи показувати дату зайнятою.",
-      "collections": ["rooms"],
+      "collections": ["rooms", "amenities"],
       "texts": ["rooms_eyebrow", "rooms_title", "rooms_more_eye", "rooms_more_h", "rooms_more_txt"]
     },
     {
-      "name": "3. Фотогалерея",
+      "name": "Фотогалерея",
       "note": "Альбоми на головній. Назва, обкладинка й решта фото — сайт сам порахує, скільки знімків у кожному.",
       "collections": ["gallery"],
       "texts": ["gallery_title"]
     },
     {
-      "name": "4. Відпочинок на території",
+      "name": "Відпочинок на території",
       "note": "Три картки на головній: сауна, більярд і кафе. Кожна веде на свою сторінку.",
       "texts": ["leisure_eyebrow", "leisure_title", "leisure1_h", "leisure1_txt", "leisure2_h", "leisure2_txt", "leisure3_h", "leisure3_txt"]
     },
     {
-      "name": "5. Кафе й меню",
+      "name": "Кафе й меню",
       "note": "Сторінка кафе та власне меню. Страву можна перенести в інший розділ прямо в її картці.",
       "collections": ["mcats", "menu"],
       "texts": ["kafe_eyebrow", "kafe_title", "kafe_p1", "kafe_p2", "menu_title", "menu_lead"]
     },
     {
-      "name": "6. Сауна й більярд",
+      "name": "Сауна й більярд",
       "note": "Тексти двох окремих сторінок.",
       "texts": ["sauna_title", "sauna_lead", "sauna_p1", "sauna_p2", "sauna_p3", "bilyard_title", "bilyard_lead", "bilyard_p1", "bilyard_p2"]
     },
     {
-      "name": "7. Про нас",
+      "name": "Про нас",
       "texts": ["about_title", "about_text"]
     },
     {
-      "name": "8. Часті питання",
+      "name": "Часті питання",
       "note": "Блок «Перед приїздом» на головній. Кожне питання розкривається по кліку.",
       "collections": ["faq"],
       "texts": ["faq_eyebrow", "faq_title"]
     },
     {
-      "name": "9. Контакти й розташування",
+      "name": "Контакти й розташування",
       "note": "Адреса, орієнтир, телефони й графік. Змінюються одразу і на головній, і в підвалі кожної сторінки.",
       "texts": ["route_title", "route_text", "route_address", "route_mark", "route_hours", "phone", "phone2", "hours_open", "hours_close", "drawer_meta", "foot_address", "foot_hours", "foot_copy"]
     },
     {
-      "name": "10. Бронювання й оплата",
+      "name": "Бронювання й оплата",
       "note": "Години заїзду-виїзду, ціна сауни й реквізити для передоплати. Самі заявки — у вкладці «Бронювання».",
       "texts": ["check_in", "check_out", "sauna_price", "prepay", "pay_recipient", "pay_iban", "pay_edrpou", "pay_note"]
     }
@@ -406,6 +425,40 @@ from s, (values
 where not exists (
   select 1 from public.items i, s
   where i.site_id = s.id and i.collection in ('menu', 'mcats'));
+
+-- ---------- 7а) Зручності — список для галочок ----------
+with s as (select id from public.sites where slug = 'filin')
+insert into public.items (site_id, collection, title, extra, sort_order)
+select s.id, 'amenities', v.title, v.extra::jsonb, v.n
+from s, (values
+  ('Окрема ванна кімната', '{"group":"Ванна кімната","top":true}', 1),
+  ('Душ', '{"group":"Ванна кімната"}', 2),
+  ('Туалет', '{"group":"Ванна кімната"}', 3),
+  ('Рушники', '{"group":"Ванна кімната"}', 4),
+  ('Постільна білизна', '{"group":"Спальня"}', 5),
+  ('Безкоштовний Wi-Fi', '{"group":"Інтернет"}', 6),
+  ('Телевізор', '{"group":"Медіа","top":true}', 7)
+) as v(title, extra, n)
+where not exists (
+  select 1 from public.items i, s where i.site_id = s.id and i.collection = 'amenities');
+
+-- Наявні номери: ліжка й ті самі зручності, що стояли на сайті.
+-- Лише де ще порожньо — наредаговане власником не чіпаємо.
+update public.items i
+set extra = i.extra
+  || jsonb_build_object('beds', v.beds)
+  || jsonb_build_object('amenities', E'Окрема ванна кімната\nДуш\nТуалет\nРушники\nПостільна білизна\nБезкоштовний Wi-Fi\nТелевізор')
+from (values
+  ('odnomisnyi', 'односпальне ліжко'),
+  ('standart', 'двоспальне ліжко'),
+  ('tvin', 'два окремі ліжка'),
+  ('lyuks', 'двоспальне ліжко й диван'),
+  ('simeinyi', 'кілька спальних місць')
+) as v(key, beds)
+where i.collection = 'rooms'
+  and i.extra->>'key' = v.key
+  and i.site_id = (select id from public.sites where slug = 'filin')
+  and coalesce(i.extra->>'amenities', '') = '';
 
 -- ---------- 7) Сторінки номерів, які вже є у сайті ----------
 update public.items i set extra = i.extra || jsonb_build_object('page', v.page)
