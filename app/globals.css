@@ -348,38 +348,81 @@ body{
   .modal-form--wide{height:calc(100dvh - 16px);max-height:calc(100dvh - 16px)}
 }
 
-/* ---------- Шахматка броней: рядок — номер, клітинка — ніч ---------- */
-.shax__head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:6px}
-.shax__head h2{margin:0}
-.shax__nav{display:flex;align-items:center;gap:8px;margin:16px 0 10px;flex-wrap:wrap}
-.shax__nav b{min-width:140px;text-align:center;font-size:1rem}
-.shax__scroll{overflow-x:auto;margin:0 -22px;padding:0 22px 8px}
-.shax{border-collapse:separate;border-spacing:3px;font-size:.78rem}
-.shax thead th{min-width:30px;padding:2px 0;text-align:center;font-weight:800;color:var(--ink)}
-.shax thead th small{display:block;font-weight:500;font-size:.7rem;color:var(--muted)}
-.shax thead th.is-we,.shax thead th.is-we small{color:var(--err-ink)}
-.shax thead th.is-today{color:var(--teal-ink);text-decoration:underline;text-underline-offset:3px}
-.shax tbody th{position:sticky;left:0;z-index:1;padding:0 12px 0 0;background:var(--surface);
-  text-align:left;white-space:nowrap;font-size:.88rem;font-weight:700}
-.shax tbody th small{font-weight:500;color:var(--muted)}
-.shax td{height:34px;min-width:30px;border-radius:6px;text-align:center;font-weight:800;cursor:pointer;
-  transition:transform .12s,box-shadow .12s}
-.shax td:hover{transform:translateY(-1px);box-shadow:0 0 0 2px var(--teal) inset}
-.shax td.is-free{background:#F1F5F7}
-.shax td.is-part{background:#BFE9E4;color:var(--teal-ink)}
-.shax td.is-full{background:var(--teal);color:#fff}
-.shax td.is-over{background:#E2553B;color:#fff}
-/* бронь виглядає суцільною смугою: кругляться лише заїзд і виїзд */
-.shax td.is-full,.shax td.is-over{border-radius:2px}
-.shax td.is-full.is-start,.shax td.is-over.is-start{border-top-left-radius:9px;border-bottom-left-radius:9px}
-.shax td.is-full.is-end,.shax td.is-over.is-end{border-top-right-radius:9px;border-bottom-right-radius:9px}
-.shax td.is-past{opacity:.4;cursor:default}
-.shax td.is-past:hover{transform:none;box-shadow:none}
-.shax td.is-today{box-shadow:0 0 0 2px var(--teal-ink) inset}
-.shax__legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:.82rem;color:var(--muted)}
-.shax__legend span{display:inline-flex;align-items:center;gap:6px}
-.shax__legend i{width:16px;height:16px;border-radius:4px;display:inline-block}
-.shax__legend .is-free{background:#F1F5F7;border:1px solid var(--line)}
-.shax__legend .is-part{background:#BFE9E4}
-.shax__legend .is-full{background:var(--teal)}
-.shax__legend .is-over{background:#E2553B}
+/* ---------- Бронювання: ліворуч форма й список, праворуч календар ---------- */
+.bka{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;align-items:start}
+.bka__side{position:sticky;top:12px}
+@media(max-width:980px){
+  .bka{grid-template-columns:minmax(0,1fr)}
+  .bka__side{position:static;order:-1}
+}
+.bka__head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.bka__head h2{margin:0}
+
+/* нова бронь — двома кроками: номер, потім дати в календарі */
+.bkform__steps{list-style:none;counter-reset:st;margin:0 0 14px;padding:0;display:grid;gap:12px}
+.bkform__steps li{counter-increment:st;display:grid;grid-template-columns:28px 1fr;gap:4px 10px;align-items:center}
+.bkform__steps li::before{content:counter(st);grid-row:span 2;width:28px;height:28px;border-radius:50%;
+  display:grid;place-items:center;font-weight:800;font-size:.85rem;background:var(--cyan-tint);color:var(--teal-ink)}
+.bkform__steps li.is-done::before{content:"✓";background:var(--teal);color:#fff}
+.bkform__steps b{font-size:.92rem}
+.bkform__rooms{display:flex;gap:6px;flex-wrap:wrap}
+.bkform__hint{font-size:.9rem;color:var(--muted)}
+.bkform .status{margin-top:4px}
+
+/* картки броней */
+.bklist{display:grid;gap:10px}
+.bkcard{border:1.5px solid var(--line);border-radius:14px;padding:13px 15px;cursor:pointer;
+  display:grid;gap:4px;transition:border-color .15s,background .15s,box-shadow .15s}
+.bkcard:hover{border-color:var(--teal)}
+.bkcard.is-on{border-color:var(--teal);background:var(--cyan-tint);box-shadow:0 0 0 3px rgba(15,163,155,.18)}
+.bkcard.is-off{opacity:.6}
+.bkcard__dates{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:1.02rem}
+.bkcard__dates span{color:var(--muted)}
+.bkcard__dates em{font-style:normal;font-size:.85rem;color:var(--muted);margin-left:4px}
+.bkcard__room{display:flex;align-items:center;gap:8px;font-weight:700;color:var(--teal-ink)}
+.bkcard__room .pill{padding:2px 9px;font-size:.75rem}
+.bkcard__guest{display:flex;gap:10px;flex-wrap:wrap;align-items:baseline;font-size:.92rem}
+.bkcard__guest a{color:var(--teal-ink);font-weight:600}
+.bkcard__guest span{color:var(--muted);font-size:.85rem}
+.bkcard__more{margin-top:8px;padding-top:10px;border-top:1px dashed var(--line);display:grid;gap:4px;font-size:.9rem;cursor:default}
+.bkcard__more p{margin:0}
+.bkcard__more .row__actions{margin-top:6px}
+
+/* календар */
+.bkcal__rooms{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.bkcal__room{position:relative;padding:7px 12px;border-radius:999px;border:1.5px solid var(--line);
+  background:var(--surface);font:inherit;font-size:.85rem;font-weight:700;cursor:pointer;color:var(--ink)}
+.bkcal__room.is-on{background:var(--teal);border-color:var(--teal);color:#fff}
+.bkcal__room i{position:absolute;top:2px;right:3px;width:7px;height:7px;border-radius:50%;background:#E2553B}
+.bkcal__nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.bkcal__nav b{font-size:1rem}
+.bkcal__grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px 0}
+.bkcal__wd{text-align:center;font-size:.72rem;font-weight:700;color:var(--muted);padding-bottom:2px}
+.bkcal__wd.is-we{color:var(--err-ink)}
+.bkcal__d{position:relative;height:42px;margin:0 2px;border:0;border-radius:9px;background:#F1F5F7;
+  font:inherit;font-weight:700;font-size:.9rem;color:var(--ink);cursor:pointer;
+  display:grid;place-items:center;transition:transform .1s,box-shadow .1s}
+.bkcal__d:hover{box-shadow:0 0 0 2px var(--teal) inset}
+.bkcal__d small{position:absolute;bottom:2px;left:0;right:0;font-size:.6rem;font-weight:700}
+.bkcal__d.is-today{box-shadow:0 0 0 2px var(--teal-ink) inset}
+.bkcal__d.is-part{background:#BFE9E4;color:var(--teal-ink)}
+.bkcal__d.is-full,.bkcal__d.is-over{background:var(--teal);color:#fff;margin:0;border-radius:3px}
+.bkcal__d.is-over{background:#E2553B}
+/* бронь — суцільна смуга, кругляться лише заїзд і виїзд */
+.bkcal__d.is-full.is-start,.bkcal__d.is-over.is-start{margin-left:2px;border-top-left-radius:11px;border-bottom-left-radius:11px}
+.bkcal__d.is-full.is-end,.bkcal__d.is-over.is-end{margin-right:2px;border-top-right-radius:11px;border-bottom-right-radius:11px}
+.bkcal__d.is-sel{background:#0B6E69;color:#fff;box-shadow:0 0 0 2px #0B6E69,0 6px 14px -6px rgba(11,110,105,.6)}
+.bkcal__d.is-pick{background:#F2A93B;color:#fff;margin:0;border-radius:3px}
+.bkcal__d.is-past{opacity:.38}
+/* обрану бронь видно повністю, навіть ту її частину, що вже минула */
+.bkcal__d.is-sel.is-past,.bkcal__d.is-pick.is-past{opacity:1}
+.bkcal__d.is-past:not(.is-full):not(.is-part){cursor:default}
+.bkcal__legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;font-size:.8rem;color:var(--muted)}
+.bkcal__legend span{display:inline-flex;align-items:center;gap:5px}
+.bkcal__legend i{width:14px;height:14px;border-radius:4px;display:inline-block}
+.bkcal__legend .is-free{background:#F1F5F7;border:1px solid var(--line)}
+.bkcal__legend .is-full{background:var(--teal)}
+.bkcal__legend .is-sel{background:#0B6E69}
+.bkcal__legend .is-pick{background:#F2A93B}
+.bkcal__info{margin-top:12px;padding:10px 12px;border-radius:11px;background:var(--cyan-tint);
+  display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:.88rem}
