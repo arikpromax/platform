@@ -357,6 +357,9 @@ body{
 }
 .bka__head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px}
 .bka__head h2{margin:0}
+.bka__clear{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+  margin-bottom:12px;padding:10px 12px;border-radius:11px;background:var(--err-bg)}
+.bka__clear .note{margin:0}
 
 /* нова бронь — двома кроками: номер, потім дати в календарі */
 .bkform__steps{list-style:none;counter-reset:st;margin:0 0 14px;padding:0;display:grid;gap:12px}

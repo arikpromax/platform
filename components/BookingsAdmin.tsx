@@ -324,6 +324,41 @@ export default function BookingsAdmin({ site, canEdit }: { site: Site; canEdit: 
     setNotice({ kind: "ok", text: status === "cancelled" ? "Бронь скасовано — дати знову вільні" : "Бронь повернуто" });
   };
 
+  /* ---------- видалити скасовані назовсім ---------- */
+
+  // Видаляти можна лише скасовані: активну спершу скасовують, щоб
+  // випадковим кліком не стерти живу бронь разом із телефоном гостя.
+  const remove = async (b: Booking) => {
+    if (!canEdit || busy || b.status !== "cancelled") return;
+    if (!window.confirm(`Видалити бронь назавжди?\n\n${b.room_name}: ${dayUA(b.date_in)} — ${dayUA(b.date_out)}\n${String(b.guest?.name ?? "")}\n\nПовернути її вже не вийде.`)) return;
+    setBusy(true);
+    const { error } = await supabase.from("bookings").delete().eq("id", b.id).eq("status", "cancelled");
+    setBusy(false);
+    if (error) {
+      setNotice({ kind: "err", text: "Не вдалося видалити: " + error.message });
+      return;
+    }
+    setList((old) => old.filter((x) => x.id !== b.id));
+    if (sel === b.id) setSel(null);
+    setNotice({ kind: "ok", text: "Бронь видалено" });
+  };
+
+  const removeAllCancelled = async () => {
+    const n = list.filter((b) => b.status === "cancelled").length;
+    if (!canEdit || busy || !n) return;
+    if (!window.confirm(`Видалити всі скасовані броні (${n}) назавжди?\n\nПовернути їх уже не вийде.`)) return;
+    setBusy(true);
+    const { error } = await supabase.from("bookings").delete().eq("site_id", site.id).eq("status", "cancelled");
+    setBusy(false);
+    if (error) {
+      setNotice({ kind: "err", text: "Не вдалося видалити: " + error.message });
+      return;
+    }
+    setList((old) => old.filter((x) => x.status !== "cancelled"));
+    setSel(null);
+    setNotice({ kind: "ok", text: `Видалено скасованих: ${n}` });
+  };
+
   /* ---------- список ---------- */
 
   const counts = {
@@ -443,6 +478,15 @@ export default function BookingsAdmin({ site, canEdit }: { site: Site; canEdit: 
 
           {notice && <div className={`status status--${notice.kind}`}>{notice.text}</div>}
 
+          {filter === "cancelled" && counts.cancelled > 0 && canEdit && (
+            <div className="bka__clear">
+              <span className="note">Скасовані нічого не займають. Їх можна прибрати, щоб не заважали.</span>
+              <button className="btn btn--danger btn--sm" onClick={removeAllCancelled} disabled={busy}>
+                Видалити всі скасовані
+              </button>
+            </div>
+          )}
+
           {loading ? (
             <p className="note">Завантажую…</p>
           ) : !shown.length ? (
@@ -502,9 +546,14 @@ export default function BookingsAdmin({ site, canEdit }: { site: Site; canEdit: 
                                 Скасувати бронь
                               </button>
                             ) : (
-                              <button className="btn btn--ghost btn--sm" onClick={() => setStatus(b, "confirmed")} disabled={busy}>
-                                Повернути бронь
-                              </button>
+                              <>
+                                <button className="btn btn--ghost btn--sm" onClick={() => setStatus(b, "confirmed")} disabled={busy}>
+                                  Повернути бронь
+                                </button>
+                                <button className="btn btn--danger btn--sm" onClick={() => remove(b)} disabled={busy}>
+                                  Видалити назавжди
+                                </button>
+                              </>
                             )}
                           </div>
                         )}

@@ -152,6 +152,16 @@ const guestsUA = (b: Booking) => {
   return a + " " + aw + (k ? ", " + k + " " + kw : "");
 };
 
+/** «068 155 85 95» → «+380681558595». Саме такий запис Telegram сам
+ *  робить натискним: тап — і телефон пропонує подзвонити. */
+const telIntl = (raw: unknown) => {
+  const d = String(raw ?? "").replace(/\D/g, "");
+  if (d.length === 10 && d.startsWith("0")) return "+38" + d;
+  if (d.length === 12 && d.startsWith("380")) return "+" + d;
+  if (d.length === 9) return "+380" + d;
+  return d ? "+" + d : "";
+};
+
 const bookingNights = (b: Booking) => {
   const a = Date.parse(b.date_in), z = Date.parse(b.date_out);
   return a && z ? Math.max(1, Math.round((z - a) / 86400000)) : 1;
@@ -178,8 +188,10 @@ function bookingText(b: Booking, place: string) {
     L.push("Сауна: " + dayUA(String(s.day)) + ", " + esc(String(s.time ?? "")) + ", " + (s.hours ?? 2) + " год");
   }
   L.push("");
-  L.push("Гість: " + esc(String(g.name ?? "—")) + (g.phone ? ", " + esc(String(g.phone)) : ""));
-  if (g.via) L.push("Звʼязок: " + esc(String(g.via)));
+  L.push("Гість: <b>" + esc(String(g.name || "—")) + "</b>");
+  const tel = telIntl(g.phone);
+  if (tel) L.push("Телефон: " + tel);
+  if (g.via) L.push("Як звʼязатися: " + esc(String(g.via)));
   if (g.note) L.push("Побажання: " + esc(String(g.note)));
   if (Number(b.total) > 0) {
     L.push("");
@@ -196,6 +208,10 @@ function bookingKeys(b: Booking) {
   const rows: { text: string; callback_data?: string; url?: string }[][] = [];
   if (b.status === "new") rows.push([{ text: "Підтвердити", callback_data: "bok:" + b.id }]);
   if (b.status !== "cancelled") rows.push([{ text: "Скасувати бронь", callback_data: "bno:" + b.id }]);
+  const tel = telIntl(b.guest?.phone);
+  if (tel && /telegram/i.test(String(b.guest?.via ?? ""))) {
+    rows.push([{ text: "Написати гостю в Telegram", url: "https://t.me/" + tel }]);
+  }
   rows.push([{ text: "Відкрити в адмінці", url: ADMIN }]);
   return { inline_keyboard: rows };
 }
