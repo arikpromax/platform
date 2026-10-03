@@ -414,8 +414,13 @@ body{
 /* бронь — суцільна смуга, кругляться лише заїзд і виїзд */
 .bkcal__d.is-full.is-start,.bkcal__d.is-over.is-start{margin-left:2px;border-top-left-radius:11px;border-bottom-left-radius:11px}
 .bkcal__d.is-full.is-end,.bkcal__d.is-over.is-end{margin-right:2px;border-top-right-radius:11px;border-bottom-right-radius:11px}
-.bkcal__d.is-sel{background:#0B6E69;color:#fff;box-shadow:0 0 0 2px #0B6E69,0 6px 14px -6px rgba(11,110,105,.6)}
+.bkcal__d.is-sel{background:#0B6E69;color:#fff;margin:0;border-radius:3px}
 .bkcal__d.is-pick{background:#F2A93B;color:#fff;margin:0;border-radius:3px}
+/* смуга від дня заїзду до дня виїзду включно: кругляться лише її краї */
+.bkcal__d.is-sel-start,.bkcal__d.is-pick-start{margin-left:2px;border-top-left-radius:11px;border-bottom-left-radius:11px}
+.bkcal__d.is-sel-end,.bkcal__d.is-pick-end{margin-right:2px;border-top-right-radius:11px;border-bottom-right-radius:11px}
+/* остання ніч обраної броні не закінчує смугу — далі ще день виїзду */
+.bkcal__d.is-sel.is-end:not(.is-sel-end){margin-right:0;border-top-right-radius:3px;border-bottom-right-radius:3px}
 .bkcal__d.is-past{opacity:.38}
 /* обрану бронь видно повністю, навіть ту її частину, що вже минула */
 .bkcal__d.is-sel.is-past,.bkcal__d.is-pick.is-past{opacity:1}

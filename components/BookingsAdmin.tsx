@@ -609,8 +609,13 @@ export default function BookingsAdmin({ site, canEdit }: { site: Site; canEdit: 
               const n = taken(calRoom, d);
               const bs = here(calRoom, d);
               const full = n >= units;
-              const inSel = !!selected && selected.room_key === calRoom && d >= selected.date_in && d < selected.date_out;
-              const inPick = !!form.from && d >= form.from && d < (form.to || addDays(form.from, 1)) && !sel;
+              // Виділяємо від дня заїзду до дня виїзду включно — «з 23 по 24»
+              // це два квадратики, хоч ніч одна. Зайнятість (смуга бронь)
+              // рахується по ночах: у день виїзду номер уже вільний.
+              const selOn = !!selected && selected.room_key === calRoom;
+              const inSel = selOn && d >= selected!.date_in && d <= selected!.date_out;
+              const pickTo = form.to || form.from;
+              const inPick = !sel && !!form.from && d >= form.from && d <= pickTo;
               const startsBk = bs.some((b) => b.date_in === d);
               const endsBk = bs.some((b) => addDays(b.date_out, -1) === d);
               const cls =
@@ -621,7 +626,11 @@ export default function BookingsAdmin({ site, canEdit }: { site: Site; canEdit: 
                 (startsBk ? " is-start" : "") +
                 (endsBk ? " is-end" : "") +
                 (inSel ? " is-sel" : "") +
-                (inPick ? " is-pick" : "");
+                (inSel && d === selected!.date_in ? " is-sel-start" : "") +
+                (inSel && d === selected!.date_out ? " is-sel-end" : "") +
+                (inPick ? " is-pick" : "") +
+                (inPick && d === form.from ? " is-pick-start" : "") +
+                (inPick && d === pickTo ? " is-pick-end" : "");
               const tip = bs.length
                 ? bs.map((b) => `${String(b.guest?.name || "без імені")}: ${dayUA(b.date_in)} — ${dayUA(b.date_out)}`).join("\n")
                 : d < today
