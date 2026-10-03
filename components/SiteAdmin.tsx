@@ -1048,16 +1048,14 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
         {useSections
           ? (
             <>
+              {/* ліворуч — щоденна робота: бронювання, склад і закріплені розділи */}
               {hasBooking && (
-                <>
-                  <button
-                    className={`tab${secIdx === bookingIdx ? " on" : ""}`}
-                    onClick={() => setSecIdx(bookingIdx)}
-                  >
-                    Бронювання
-                  </button>
-                  <span className="tabs__split" aria-hidden="true" />
-                </>
+                <button
+                  className={`tab${secIdx === bookingIdx ? " on" : ""}`}
+                  onClick={() => setSecIdx(bookingIdx)}
+                >
+                  Бронювання
+                </button>
               )}
               {hasStock && (
                 <>
@@ -1081,18 +1079,35 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
                       Підключення
                     </button>
                   )}
-                  <span className="tabs__split" aria-hidden="true" />
                 </>
               )}
-              {sections.map((s, i) => (
-                <button
-                  key={s.name}
-                  className={`tab${secIdx === i ? " on" : ""}`}
-                  onClick={() => setSecIdx(i)}
-                >
-                  {i + 1}. {s.name}
-                </button>
-              ))}
+              {sections.map((s, i) =>
+                s.pin ? (
+                  <button
+                    key={s.name}
+                    className={`tab${secIdx === i ? " on" : ""}`}
+                    onClick={() => setSecIdx(i)}
+                  >
+                    {s.name}
+                  </button>
+                ) : null,
+              )}
+              {(hasBooking || hasStock || sections.some((s) => s.pin)) && (
+                <span className="tabs__split" aria-hidden="true" />
+              )}
+              {/* праворуч — блоки сайту по порядку; номер рахуємо лише серед них */}
+              {sections
+                .map((s, i) => ({ s, i }))
+                .filter(({ s }) => !s.pin)
+                .map(({ s, i }, n) => (
+                  <button
+                    key={s.name}
+                    className={`tab${secIdx === i ? " on" : ""}`}
+                    onClick={() => setSecIdx(i)}
+                  >
+                    {n + 1}. {s.name}
+                  </button>
+                ))}
             </>
           )
           : (
@@ -1192,17 +1207,21 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
                 {list.length === 0 && (
                   <p className="note">Фото-місця цього блока ще не створені в базі.</p>
                 )}
-                {list.map((item) => (
+                {list.map((item) => {
+                  // фото місця буває одним (image_url) або списком (extra.photos)
+                  const many = (item.extra ?? {})["photos"];
+                  const pics = [item.image_url, ...(Array.isArray(many) ? (many as string[]) : [])].filter(Boolean);
+                  return (
                   <div key={item.id} className="row">
-                    {item.image_url ? (
+                    {pics[0] ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img className="row__img" src={item.image_url} alt="" />
+                      <img className="row__img" src={pics[0]} alt="" />
                     ) : (
                       <div className="row__img" />
                     )}
                     <div className="row__txt">
                       <b>{item.title}</b>
-                      <span>{item.image_url ? "фото завантажено" : "фото ще нема"}</span>
+                      <span>{pics.length > 1 ? `${pics.length} фото` : pics.length ? "фото завантажено" : "фото ще нема"}</span>
                     </div>
                     <div className="row__actions">
                       <button
@@ -1216,7 +1235,8 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
                       </button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             );
           })()}

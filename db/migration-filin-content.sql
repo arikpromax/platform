@@ -115,8 +115,8 @@ update public.sites set config = '{
       "noAdd": true,
       "noDelete": true,
       "fields": [
-        {"type": "images", "key": "photos", "name": "Фото на весь екран", "extra": true,
-         "hint": "Вони змінюють одне одного кожні кілька секунд. Горизонтальні, не менше 2400 пікселів завширшки. Порядок міняється стрілочками."}
+        {"type": "images", "key": "photos", "name": "Фото", "extra": true,
+         "hint": "Для першого екрана можна кілька — вони змінюють одне одного кожні 6 секунд. Для решти місць береться перше фото. Горизонтальні, бажано від 2000 пікселів завширшки."}
       ]
     }
   ],
@@ -206,11 +206,12 @@ update public.sites set config = '{
     {
       "name": "Перший екран",
       "note": "Те, що гість бачить першим: фото на весь екран і написи, які проявляються, поки він гортає.",
-      "collections": ["site_photos"],
+      "photos": ["hero"],
       "texts": ["hero_top", "hero_script", "hero_place", "hero_lead1", "hero_next1", "hero_lead2", "hero_next2", "hero_lead3"]
     },
     {
       "name": "Номери й ціни",
+      "pin": true,
       "note": "Ціна за ніч, місткість і — найголовніше — скільки таких номерів у вас фізично. Саме від цього числа календар вирішує, чи показувати дату зайнятою.",
       "collections": ["rooms", "amenities"],
       "texts": ["rooms_eyebrow", "rooms_title", "rooms_more_eye", "rooms_more_h", "rooms_more_txt"]
@@ -224,21 +225,26 @@ update public.sites set config = '{
     {
       "name": "Відпочинок на території",
       "note": "Три картки на головній: сауна, більярд і кафе. Кожна веде на свою сторінку.",
+      "photos": ["leisure_sauna", "leisure_bilyard", "leisure_kafe"],
       "texts": ["leisure_eyebrow", "leisure_title", "leisure1_h", "leisure1_txt", "leisure2_h", "leisure2_txt", "leisure3_h", "leisure3_txt"]
     },
     {
       "name": "Кафе й меню",
-      "note": "Сторінка кафе та власне меню. Страву можна перенести в інший розділ прямо в її картці.",
+      "pin": true,
+      "note": "Страви, ціни й розділи меню — тут же фото й тексти сторінок «Кафе» та «Меню». Страву можна перенести в інший розділ прямо в її картці.",
+      "photos": ["kafe", "menu"],
       "collections": ["mcats", "menu"],
       "texts": ["kafe_eyebrow", "kafe_title", "kafe_p1", "kafe_p2", "menu_title", "menu_lead"]
     },
     {
       "name": "Сауна й більярд",
-      "note": "Тексти двох окремих сторінок.",
+      "note": "Фото й тексти двох окремих сторінок.",
+      "photos": ["sauna", "bilyard"],
       "texts": ["sauna_title", "sauna_lead", "sauna_p1", "sauna_p2", "sauna_p3", "bilyard_title", "bilyard_lead", "bilyard_p1", "bilyard_p2"]
     },
     {
       "name": "Про нас",
+      "photos": ["about"],
       "texts": ["about_title", "about_text"]
     },
     {
@@ -328,21 +334,39 @@ from s, (values
 on conflict (site_id, key) do nothing;
 
 -- ---------- 3) Фото першого екрана ----------
---  Раніше фото першого екрана були двома окремими слотами. Тепер це
---  один рядок зі списком знімків, тож порожні слоти прибираємо.
+--  Кожне місце на сайті, де стоїть фото, — окремий рядок зі своїм «slot».
+--  Адмінка показує ці рядки у вкладці того блока, де фото на сайті.
+
+-- самі старі порожні слоти першого екрана (hero1/hero2) більше не потрібні
 delete from public.items
 where collection = 'site_photos'
   and site_id = (select id from public.sites where slug = 'filin')
-  and extra ? 'slot'
+  and extra->>'slot' in ('hero1', 'hero2')
   and coalesce(image_url, '') = '';
+
+-- рядок першого екрана з минулого запуску був без slot — даємо йому
+update public.items set extra = extra || '{"slot":"hero"}'::jsonb
+where collection = 'site_photos'
+  and site_id = (select id from public.sites where slug = 'filin')
+  and coalesce(extra->>'slot', '') = '';
 
 with s as (select id from public.sites where slug = 'filin')
 insert into public.items (site_id, collection, title, extra, sort_order)
-select s.id, 'site_photos', 'Фото першого екрана', '{"photos":[]}'::jsonb, 1
-from s
+select s.id, 'site_photos', v.title, jsonb_build_object('slot', v.slot, 'photos', '[]'::jsonb), v.n
+from s, (values
+  ('hero',            'Фото на весь екран (можна кілька)', 1),
+  ('leisure_sauna',   'Картка «Сауна» на головній', 2),
+  ('leisure_bilyard', 'Картка «Більярд» на головній', 3),
+  ('leisure_kafe',    'Картка «Кафе» на головній', 4),
+  ('kafe',            'Сторінка «Кафе» — фото вгорі', 5),
+  ('menu',            'Сторінка меню — фото вгорі', 6),
+  ('sauna',           'Сторінка «Сауна» — фото', 7),
+  ('bilyard',         'Сторінка «Більярд» — фото', 8),
+  ('about',           'Сторінка «Про нас» — фото', 9)
+) as v(slot, title, n)
 where not exists (
-  select 1 from public.items i, s
-  where i.site_id = s.id and i.collection = 'site_photos');
+  select 1 from public.items i
+  where i.site_id = s.id and i.collection = 'site_photos' and i.extra->>'slot' = v.slot);
 
 -- ---------- 4) Часті питання ----------
 with s as (select id from public.sites where slug = 'filin')

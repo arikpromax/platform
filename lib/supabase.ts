@@ -63,6 +63,9 @@ export type SectionDef = {
   texts?: string[]; // ключі текстів цього блока
   collections?: string[]; // ключі колекцій цього блока
   photos?: string[]; // слоти фото сайту (extra.slot) цього блока
+  // true — вкладка стоїть ліворуч, поруч із бронюванням чи складом, без номера:
+  // для того, що власник міняє щодня (ціни номерів, меню)
+  pin?: boolean;
 };
 export type SiteConfig = {
   collections: CollectionDef[];
