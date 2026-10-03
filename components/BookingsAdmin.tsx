@@ -428,7 +428,7 @@ export default function BookingsAdmin({ site, canEdit }: { site: Site; canEdit: 
               </li>
             </ol>
 
-            {form.from && <div className={`status status--${check.ok ? "ok" : "err"}`}>{check.text}</div>}
+            {form.from && !picking && <div className={`status status--${check.ok ? "ok" : "err"}`}>{check.text}</div>}
 
             <div className="grid2">
               <div className="field">
@@ -454,7 +454,7 @@ export default function BookingsAdmin({ site, canEdit }: { site: Site; canEdit: 
               </label>
               <input id="bk-note" value={form.note} placeholder="напр. приїдуть пізно ввечері" onChange={(e) => setForm({ ...form, note: e.target.value })} />
             </div>
-            <button className="btn btn--primary" onClick={addBooking} disabled={busy || !check.ok}>
+            <button className="btn btn--primary" onClick={addBooking} disabled={busy || picking || !check.ok}>
               Забронювати
             </button>
           </div>
@@ -614,7 +614,8 @@ export default function BookingsAdmin({ site, canEdit }: { site: Site; canEdit: 
               // рахується по ночах: у день виїзду номер уже вільний.
               const selOn = !!selected && selected.room_key === calRoom;
               const inSel = selOn && d >= selected!.date_in && d <= selected!.date_out;
-              const pickTo = form.to || form.from;
+              // поки день виїзду не обрано — світиться лише день заїзду
+              const pickTo = picking ? form.from : form.to || form.from;
               const inPick = !sel && !!form.from && d >= form.from && d <= pickTo;
               const startsBk = bs.some((b) => b.date_in === d);
               const endsBk = bs.some((b) => addDays(b.date_out, -1) === d);
