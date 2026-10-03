@@ -132,27 +132,80 @@ $$
 $$;
 
 -- ---------- 6) Штовхнути бота ----------
+--  Мовчимо, поки до сайту не підключено жодного чату: інакше підстраховка
+--  кожні дві хвилини марно повторювала б надсилання. Бронь лишається
+--  непозначеною і прийде сама, щойно чат зʼявиться.
 create extension if not exists pg_net;
 
 create or replace function public.booking_ping(p_booking bigint) returns void
 language plpgsql security definer set search_path = public as
 $fn$
+declare v_site bigint;
 begin
+  select site_id into v_site from public.bookings where id = p_booking;
+  if v_site is null then return; end if;
+  if not exists (select 1 from public.tg_chats where site_id = v_site) then return; end if;
   perform net.http_post(
     url     := 'https://ortiatyxntdikaldepbp.supabase.co/functions/v1/tg-filin',
     body    := jsonb_build_object('booking', p_booking),
     headers := '{"Content-Type": "application/json"}'::jsonb
   );
 exception when others then
-  -- Бот недоступний — бронь усе одно збережена, підстраховка нижче дошле.
-  null;
+  null;   -- бот недоступний: бронь збережена, підстраховка спробує ще раз
 end
 $fn$;
 
--- ---------- 7) Оформити бронь ----------
---  Повертає {ok:true, id, ref} або {ok:false, why:'busy'|'dates'|'room'}.
---  Перевірку вільних місць робимо тут, а не на сайті: поки гість
---  заповнював форму, останній номер могли забрати.
+-- ---------- 7) Сторож: жодна бронь поверх зайнятих дат ----------
+--  Перевіряє кожну бронь — із сайту, з адмінки, кнопкою «Повернути».
+create or replace function public.bookings_guard() returns trigger
+language plpgsql security definer set search_path = public as
+$fn$
+declare
+  v_units int;
+  v_peak  int;
+begin
+  -- скасовану можна зберігати будь-коли — вона нічого не займає
+  if new.status = 'cancelled' then return new; end if;
+
+  if new.date_in is null or new.date_out is null or new.date_out <= new.date_in then
+    raise exception 'BAD_DATES' using hint = 'Виїзд має бути пізніше за заїзд';
+  end if;
+
+  -- Дві броні того самого номера в ту саму мить — перевіряємо по черзі,
+  -- інакше обидві побачили б вільні дати й лягли разом.
+  perform pg_advisory_xact_lock(hashtext(new.site_id::text || ':' || new.room_key));
+
+  v_units := coalesce(public.room_units(new.site_id, new.room_key), 1);
+
+  -- найзавантаженіша ніч серед обраних, без самої цієї броні
+  select coalesce(max(taken), 0) into v_peak
+  from (
+    select sum(b.rooms_count) as taken
+    from public.bookings b
+    cross join lateral generate_series(b.date_in, b.date_out - 1, interval '1 day') as g(d)
+    where b.site_id = new.site_id
+      and b.room_key = new.room_key
+      and b.status <> 'cancelled'
+      and b.id is distinct from new.id
+      and g.d >= new.date_in and g.d < new.date_out
+    group by g.d
+  ) t;
+
+  if v_peak + greatest(1, coalesce(new.rooms_count, 1)) > v_units then
+    raise exception 'ROOM_BUSY' using hint = 'На ці дати в цьому номері вже немає вільних місць';
+  end if;
+  return new;
+end
+$fn$;
+
+drop trigger if exists bookings_guard on public.bookings;
+create trigger bookings_guard
+  before insert or update of status, date_in, date_out, room_key, rooms_count
+  on public.bookings
+  for each row execute function public.bookings_guard();
+
+-- ---------- 7а) Оформлення з сайту: одразу підтверджено ----------
+--  Повертає {ok:true, id, ref} або {ok:false, why:'busy'|'dates'}.
 create or replace function public.place_booking(
   p_site     bigint,
   p_room     text,
@@ -168,65 +221,40 @@ create or replace function public.place_booking(
 language plpgsql security definer set search_path = public as
 $fn$
 declare
-  v_units int;
-  v_name  text;
-  v_take  int := greatest(1, coalesce(p_rooms, 1));
-  v_peak  int;
-  v_ref   text;
-  v_id    bigint;
+  v_name text;
+  v_ref  text;
+  v_id   bigint;
 begin
-  if p_in is null or p_out is null or p_out <= p_in then
-    return jsonb_build_object('ok', false, 'why', 'dates');
-  end if;
-  if p_in < current_date then
+  if p_in is null or p_out is null or p_out <= p_in or p_in < current_date then
     return jsonb_build_object('ok', false, 'why', 'dates');
   end if;
 
-  select title, greatest(1, coalesce(nullif(extra->>'units', '')::int, 1))
-    into v_name, v_units
+  select title into v_name
   from public.items
   where site_id = p_site and collection = 'rooms' and extra->>'key' = p_room
   limit 1;
 
-  if v_name is null then
-    -- Номера з таким кодом у базі немає: сайт свіжіший за базу.
-    -- Бронь усе одно приймаємо — власник розбереться, але місця не рахуємо.
-    v_name := p_room;
-    v_units := 1;
-  end if;
-
-  -- найзавантаженіша ніч із обраних
-  select coalesce(max(taken), 0) into v_peak
-  from (
-    select sum(b.rooms_count) as taken
-    from public.bookings b
-    cross join lateral generate_series(b.date_in, b.date_out - 1, interval '1 day') as g(d)
-    where b.site_id = p_site
-      and b.room_key = p_room
-      and b.status <> 'cancelled'
-      and g.d >= p_in and g.d < p_out
-    group by g.d
-  ) t;
-
-  if v_peak + v_take > v_units then
-    return jsonb_build_object('ok', false, 'why', 'busy');
-  end if;
-
   v_ref := 'F-' || to_char(now() at time zone 'Europe/Kyiv', 'DDMM') || '-' ||
            lpad((floor(random() * 900) + 100)::text, 3, '0');
 
-  insert into public.bookings
-    (site_id, ref, room_key, room_name, rooms_count, date_in, date_out,
-     adults, children, guest, extras, total, source)
-  values
-    (p_site, v_ref, p_room, v_name, v_take, p_in, p_out,
-     greatest(1, coalesce(p_adults, 1)), greatest(0, coalesce(p_children, 0)),
-     coalesce(p_guest, '{}'::jsonb), coalesce(p_extras, '{}'::jsonb),
-     coalesce(p_total, 0), 'site')
-  returning id into v_id;
+  begin
+    insert into public.bookings
+      (site_id, ref, room_key, room_name, rooms_count, date_in, date_out,
+       adults, children, guest, extras, total, status, source)
+    values
+      (p_site, v_ref, p_room, coalesce(v_name, p_room), greatest(1, coalesce(p_rooms, 1)),
+       p_in, p_out,
+       greatest(1, coalesce(p_adults, 1)), greatest(0, coalesce(p_children, 0)),
+       coalesce(p_guest, '{}'::jsonb), coalesce(p_extras, '{}'::jsonb),
+       coalesce(p_total, 0), 'confirmed', 'site')
+    returning id into v_id;
+  exception when raise_exception then
+    if sqlerrm = 'ROOM_BUSY' then return jsonb_build_object('ok', false, 'why', 'busy'); end if;
+    if sqlerrm = 'BAD_DATES' then return jsonb_build_object('ok', false, 'why', 'dates'); end if;
+    raise;
+  end;
 
   perform public.booking_ping(v_id);
-
   return jsonb_build_object('ok', true, 'id', v_id, 'ref', v_ref);
 end
 $fn$;

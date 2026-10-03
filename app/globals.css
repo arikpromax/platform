@@ -347,3 +347,39 @@ body{
 @media(max-width:560px){
   .modal-form--wide{height:calc(100dvh - 16px);max-height:calc(100dvh - 16px)}
 }
+
+/* ---------- Шахматка броней: рядок — номер, клітинка — ніч ---------- */
+.shax__head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.shax__head h2{margin:0}
+.shax__nav{display:flex;align-items:center;gap:8px;margin:16px 0 10px;flex-wrap:wrap}
+.shax__nav b{min-width:140px;text-align:center;font-size:1rem}
+.shax__scroll{overflow-x:auto;margin:0 -22px;padding:0 22px 8px}
+.shax{border-collapse:separate;border-spacing:3px;font-size:.78rem}
+.shax thead th{min-width:30px;padding:2px 0;text-align:center;font-weight:800;color:var(--ink)}
+.shax thead th small{display:block;font-weight:500;font-size:.7rem;color:var(--muted)}
+.shax thead th.is-we,.shax thead th.is-we small{color:var(--err-ink)}
+.shax thead th.is-today{color:var(--teal-ink);text-decoration:underline;text-underline-offset:3px}
+.shax tbody th{position:sticky;left:0;z-index:1;padding:0 12px 0 0;background:var(--surface);
+  text-align:left;white-space:nowrap;font-size:.88rem;font-weight:700}
+.shax tbody th small{font-weight:500;color:var(--muted)}
+.shax td{height:34px;min-width:30px;border-radius:6px;text-align:center;font-weight:800;cursor:pointer;
+  transition:transform .12s,box-shadow .12s}
+.shax td:hover{transform:translateY(-1px);box-shadow:0 0 0 2px var(--teal) inset}
+.shax td.is-free{background:#F1F5F7}
+.shax td.is-part{background:#BFE9E4;color:var(--teal-ink)}
+.shax td.is-full{background:var(--teal);color:#fff}
+.shax td.is-over{background:#E2553B;color:#fff}
+/* бронь виглядає суцільною смугою: кругляться лише заїзд і виїзд */
+.shax td.is-full,.shax td.is-over{border-radius:2px}
+.shax td.is-full.is-start,.shax td.is-over.is-start{border-top-left-radius:9px;border-bottom-left-radius:9px}
+.shax td.is-full.is-end,.shax td.is-over.is-end{border-top-right-radius:9px;border-bottom-right-radius:9px}
+.shax td.is-past{opacity:.4;cursor:default}
+.shax td.is-past:hover{transform:none;box-shadow:none}
+.shax td.is-today{box-shadow:0 0 0 2px var(--teal-ink) inset}
+.shax__legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:.82rem;color:var(--muted)}
+.shax__legend span{display:inline-flex;align-items:center;gap:6px}
+.shax__legend i{width:16px;height:16px;border-radius:4px;display:inline-block}
+.shax__legend .is-free{background:#F1F5F7;border:1px solid var(--line)}
+.shax__legend .is-part{background:#BFE9E4}
+.shax__legend .is-full{background:var(--teal)}
+.shax__legend .is-over{background:#E2553B}
