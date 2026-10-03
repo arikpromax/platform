@@ -31,7 +31,7 @@ update public.sites set config = '{
          "hint": "Число. За ним сайт не дає вибрати більше дорослих, ніж номер витримає. Наприклад: 2"},
         {"type": "text", "key": "meta", "name": "Короткий підпис", "extra": true,
          "hint": "Рядок під назвою на картці. Наприклад: До 2 гостей · двоспальне ліжко"},
-        {"type": "textarea", "key": "text", "name": "Опис номера", "extra": true,
+        {"type": "textarea", "key": "text", "name": "Опис номера",
          "hint": "Абзац на сторінці номера, під заголовком «Про номер»."},
         {"type": "text", "key": "beds", "name": "Ліжка", "extra": true,
          "hint": "Як на сторінці номера після слова «Ліжка:». Наприклад: двоспальне ліжко"},
@@ -94,9 +94,29 @@ update public.sites set config = '{
         {"type": "select-collection", "key": "cat", "name": "У якому розділі показувати", "extra": true,
          "from": "mcats",
          "hint": "Список береться з «Розділів меню» — перейменували розділ, і підпис зміниться скрізь."},
-        {"type": "textarea", "key": "text", "name": "Опис (склад)", "extra": true,
+        {"type": "textarea", "key": "text", "name": "Опис (склад)",
          "hint": "Коротко, своїми словами. Наприклад: ніжні, з ванільним ароматом."},
         {"type": "checkbox", "key": "top", "name": "Показати в «Популярному» на головній", "extra": true}
+      ]
+    },
+    {
+      "key": "rules",
+      "name": "Правила проживання",
+      "fields": [
+        {"type": "text", "key": "title", "name": "Назва правила",
+         "hint": "Коротко, одним-двома словами. Наприклад: Куріння"},
+        {"type": "textarea", "key": "text", "name": "Пояснення",
+         "hint": "Що саме. Наприклад: У номерах не курять."},
+        {"type": "select", "key": "icon", "name": "Значок", "extra": true,
+         "options": [
+           {"value": "card", "label": "Гроші / оплата"},
+           {"value": "cancel", "label": "Скасування"},
+           {"value": "smoke", "label": "Куріння"},
+           {"value": "kids", "label": "Діти"},
+           {"value": "clock", "label": "Час"},
+           {"value": "dot", "label": "Інше"}
+         ],
+         "hint": "Маленька картинка зліва від назви."}
       ]
     },
     {
@@ -260,7 +280,8 @@ update public.sites set config = '{
     },
     {
       "name": "Бронювання й оплата",
-      "note": "Години заїзду-виїзду, ціна сауни й реквізити для передоплати. Самі заявки — у вкладці «Бронювання».",
+      "note": "Правила проживання, години заїзду-виїзду, ціна сауни й реквізити для передоплати. Самі заявки — у вкладці «Бронювання».",
+      "collections": ["rules"],
       "texts": ["check_in", "check_out", "sauna_price", "prepay", "pay_recipient", "pay_iban", "pay_edrpou", "pay_note"]
     }
   ]
@@ -483,6 +504,29 @@ where i.collection = 'rooms'
   and i.extra->>'key' = v.key
   and i.site_id = (select id from public.sites where slug = 'filin')
   and coalesce(i.extra->>'amenities', '') = '';
+
+-- ---------- 7б) Правила проживання ----------
+--  Години заїзду й виїзду лишаються окремими полями (вони ж ідуть
+--  у вікно бронювання), тут — решта правил.
+with s as (select id from public.sites where slug = 'filin')
+insert into public.items (site_id, collection, title, text, extra, sort_order)
+select s.id, 'rules', v.title, v.txt, v.extra::jsonb, v.n
+from s, (values
+  ('Оплата', 'Передоплата за номер за реквізитами, решта — на місці.', '{"icon":"card"}', 1),
+  ('Скасування', 'Скасувати бронь без втрат можна не пізніше ніж за 5 днів до заїзду. Пізніше передоплата не повертається.', '{"icon":"cancel"}', 2),
+  ('Куріння', 'У номерах не курять.', '{"icon":"smoke"}', 3),
+  ('Діти', 'Дітей приймаємо, без вікових обмежень.', '{"icon":"kids"}', 4)
+) as v(title, txt, extra, n)
+where not exists (
+  select 1 from public.items i, s where i.site_id = s.id and i.collection = 'rules');
+
+-- Описи номерів і страв, вписані в адмінці раніше, лягали в extra.text,
+-- а сайт читає колонку text. Переносимо, щоб нічого не загубилось.
+update public.items
+set text = extra->>'text', extra = extra - 'text'
+where site_id = (select id from public.sites where slug = 'filin')
+  and collection in ('rooms', 'menu')
+  and coalesce(extra->>'text', '') <> '';
 
 -- ---------- 7) Сторінки номерів, які вже є у сайті ----------
 update public.items i set extra = i.extra || jsonb_build_object('page', v.page)
