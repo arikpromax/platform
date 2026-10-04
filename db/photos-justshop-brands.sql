@@ -20,5 +20,16 @@ begin
 end
 $ex$;
 
+-- Костюм Tech Fleece Grey: верх — світшот CU4505-063 без капюшона, а не худі
+-- FB7921-063, як записано в таблиці. Артикул, назва, опис і фото — за справжнім.
+-- У таблиці й УкрСкладі артикул теж треба виправити на CU4505-063__FB8012-063.
+update items
+   set title = 'Спортивний костюм чоловічий Tech Fleece Grey зі світшотом',
+       text  = 'Оригінальний спортивний костюм Nike з Європи. Чоловіча модель. Артикул CU4505-063 + FB8012-063 — за ним модель легко звірити на сайті бренду. Перед відправкою надсилаємо фото бірок, щоб ви переконалися в оригінальності.',
+       extra = extra
+               || jsonb_build_object('sku', 'CU4505-063__FB8012-063')
+               || jsonb_build_object('photos', '["https://arikpromax.github.io/justshop/img/n/CU4505-063__FB8012-063-1.webp","https://arikpromax.github.io/justshop/img/n/CU4505-063__FB8012-063-2.webp","https://arikpromax.github.io/justshop/img/n/CU4505-063__FB8012-063-3.webp","https://arikpromax.github.io/justshop/img/n/CU4505-063__FB8012-063-4.webp","https://arikpromax.github.io/justshop/img/n/CU4505-063__FB8012-063-5.webp"]'::jsonb)
+ where id = 1762 and site_id = 106;
+
 select title as товар, jsonb_array_length(extra->'photos') as фото
-  from items where id = any(array[1483,1032,1484,1462,1485,948,949,1378,1748,1375,1477,1478,1559,1561,1563,1566,1641,1226,1227,1229,1250,1288]) order by фото desc, title;
+  from items where id = any(array[1483,1032,1484,1462,1485,948,949,1378,1748,1375,1477,1478,1559,1561,1563,1566,1641,1226,1227,1229,1250,1288,1762]) order by фото desc, title;
