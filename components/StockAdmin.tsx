@@ -384,6 +384,15 @@ export default function StockAdmin({
         <span className="szr__q">
           {r.qty} шт
           {r.reserved > 0 && <i title="відкладено під кошики покупців"> · {r.reserved} відкладено</i>}
+          {r.price != null && Number(r.price) > 0 && (
+            <i title="ціна цього розміру з програми обліку; змінюється там">
+              {" · "}
+              {Number(r.price).toLocaleString("uk-UA")} грн
+              {r.old_price != null && Number(r.old_price) > Number(r.price) && (
+                <s> {Number(r.old_price).toLocaleString("uk-UA")}</s>
+              )}
+            </i>
+          )}
         </span>
         <span className="szr__act">
           <button

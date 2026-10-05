@@ -117,6 +117,10 @@ export type StockRow = {
   reserved: number;
   low_at: number; // від скількох показувати «закінчується»
   updated_at: string;
+  // з обміну з програмою обліку (УкрСклад): ID розміру там і його власна ціна
+  ext_id?: string | null;
+  price?: number | null;
+  old_price?: number | null;
 };
 
 export type MoveKind = 'in' | 'sale' | 'return' | 'writeoff' | 'fix';

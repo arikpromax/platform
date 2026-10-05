@@ -32,8 +32,12 @@ alter table public.orders
 update public.orders set synced_at = coalesce(synced_at, now()), sync_status = status
  where site_id = 106 and synced_at is null;
 
--- ---------- 2) ID УкрСкладу на кожному розмірі ----------
+-- ---------- 2) ID УкрСкладу і своя ціна на кожному розмірі ----------
+-- У УкрСкладі кожен розмір — окремий товар зі своєю ціною (Cortez 38 — 4000,
+-- 40.5 — 5000). Порожня ціна розміру = ціна картки, як і досі.
 alter table public.stock add column if not exists ext_id text;
+alter table public.stock add column if not exists price numeric;      -- за скільки продаємо цей розмір
+alter table public.stock add column if not exists old_price numeric;  -- перекреслена, якщо на розмір акція
 create unique index if not exists stock_site_ext_id on public.stock (site_id, ext_id) where ext_id is not null;
 
 -- ---------- 3) Помічники ----------
@@ -109,16 +113,17 @@ drop function if exists public.sync_stock(bigint, jsonb, boolean);
 --   sku, size, name — лише щоб зчепити новий ID; далі не потрібні;
 --   price — роздрібна ціна; sale — «Ціна Акція»: якщо є й менша за роздрібну,
 --           на сайті роздрібна перекреслена, а продають за акційною.
+-- Ціна — своя в кожного розміру; на картці (у каталозі) — найменша з тих, що є.
 create or replace function public.sync_apply(p_site bigint, p_items jsonb, p_full boolean)
 returns jsonb language plpgsql security definer set search_path = public as
 $fn$
 declare
   r record; s record; v_ord record; g record;
   v_item bigint; v_stock bigint; v_have int; v_known int;
-  v_target int; v_pending int; v_base numeric; v_sale numeric; v_cur numeric;
+  v_target int; v_pending int; v_touched bigint[] := '{}';
   v_linked int := 0; v_added int := 0; v_changed int := 0; v_zeroed int := 0;
   v_created jsonb := '[]'::jsonb; v_problems jsonb := '[]'::jsonb;
-  v_conflicts jsonb := '[]'::jsonb; v_prices jsonb := '[]'::jsonb;
+  v_conflicts jsonb := '[]'::jsonb;
 begin
   if jsonb_typeof(p_items) is distinct from 'array' or jsonb_array_length(p_items) = 0 then
     return jsonb_build_object('ok', false, 'error', 'порожній список товарів');
@@ -312,32 +317,16 @@ begin
     end if;
   end loop;
 
-  -- 4. Ціни — по картці. Якщо розміри однієї картки прийшли з різною ціною,
-  --    лишаємо поточну, коли вона серед них, і кажемо про це в маркері.
-  for g in
-    select st.item_id, array_agg(distinct x.price) filter (where x.price is not null) as prices,
-           min(x.sale) filter (where x.sale is not null) as sale,
-           min(x.sku) as sku
-      from _sync_in x join stock st on st.id = x.stock_id
-     group by st.item_id
-  loop
-    continue when g.prices is null;
-    select coalesce(public.sync_dec(nullif(extra->>'old', '')), public.sync_dec(price)) into v_cur
-      from items where id = g.item_id;
-    v_base := case when v_cur = any(g.prices) then v_cur
-                   else (select max(p) from unnest(g.prices) p) end;
-    if array_length(g.prices, 1) > 1 then
-      v_prices := v_prices || jsonb_build_array(jsonb_build_object('sku', g.sku, 'prices', to_jsonb(g.prices), 'kept', v_base));
-    end if;
-    v_sale := case when g.sale is not null and g.sale < v_base then g.sale end;
-    update items
-       set price = public.sync_num(coalesce(v_sale, v_base)),
-           extra = extra || jsonb_build_object('old', case when v_sale is not null then public.sync_num(v_base) else '' end)
-     where id = g.item_id
-       and (price is distinct from public.sync_num(coalesce(v_sale, v_base))
-            or coalesce(extra->>'old', '') is distinct from
-               case when v_sale is not null then public.sync_num(v_base) else '' end);
-  end loop;
+  -- 4. Ціна кожного розміру: акційна, якщо вона є й менша, а роздрібна тоді перекреслена
+  update stock st
+     set price     = case when x.sale is not null and x.sale < x.price then x.sale else x.price end,
+         old_price = case when x.sale is not null and x.sale < x.price then x.price end
+    from _sync_in x
+   where st.id = x.stock_id and x.price is not null
+     and (st.price is distinct from case when x.sale is not null and x.sale < x.price then x.sale else x.price end
+          or st.old_price is distinct from case when x.sale is not null and x.sale < x.price then x.price end);
+  select coalesce(array_agg(distinct st.item_id), '{}') into v_touched
+    from _sync_in x join stock st on st.id = x.stock_id;
 
   -- 5. Повний перелік: чого в ньому немає, того немає й на сайті (картки не видаляємо)
   if p_full then
@@ -350,8 +339,25 @@ begin
       insert into stock_moves (site_id, item_id, size, color, kind, delta, qty_after, note, who)
       values (p_site, s.item_id, s.size, '', 'fix', -s.qty, 0, 'немає в магазині', 'магазин');
       v_zeroed := v_zeroed + 1;
+      v_touched := v_touched || s.item_id;
     end loop;
   end if;
+
+  -- 6. Ціна картки — найменша серед розмірів у наявності (немає жодного — серед усіх);
+  --    перекреслена — того ж розміру. Її бачать у каталозі, фільтрі й сортуванні.
+  for g in
+    select distinct on (st.item_id) st.item_id, st.price, st.old_price
+      from stock st
+     where st.item_id = any(v_touched) and st.price is not null
+     order by st.item_id, (st.qty > 0) desc, st.price, st.id
+  loop
+    update items
+       set price = public.sync_num(g.price),
+           extra = extra || jsonb_build_object('old', coalesce(public.sync_num(g.old_price), ''))
+     where id = g.item_id
+       and (price is distinct from public.sync_num(g.price)
+            or coalesce(extra->>'old', '') is distinct from coalesce(public.sync_num(g.old_price), ''));
+  end loop;
 
   -- Маркер: що прийняли й скільки тепер на сайті по кожному ID
   return jsonb_build_object(
@@ -359,7 +365,7 @@ begin
     'received', jsonb_array_length(p_items),
     'accepted', (select count(*) from _sync_in where stock_id is not null),
     'linked', v_linked, 'new_sizes', v_added, 'changed', v_changed, 'zeroed', v_zeroed,
-    'created', v_created, 'prices', v_prices, 'problems', v_problems, 'conflicts', v_conflicts,
+    'created', v_created, 'problems', v_problems, 'conflicts', v_conflicts,
     'rows', (select coalesce(jsonb_agg(jsonb_build_object('id', x.ext, 'qty', st.qty) order by x.n), '[]'::jsonb)
                from _sync_in x join stock st on st.id = x.stock_id));
 end
@@ -423,7 +429,98 @@ $fn$
      )
 $fn$;
 
--- ---------- 6) Магазин підтвердив, що забрав ----------
+-- ---------- 6) Оформлення замовлення: ціна розміру ----------
+-- Те саме, що в order-prices.sql, лише ціна рядка — своя в розміру, якщо вона є,
+-- інакше ціна картки. Суму, як і досі, рахує база, а не браузер.
+create or replace function public.place_order(
+  p_site bigint, p_token uuid, p_lines jsonb, p_customer jsonb, p_total numeric
+) returns jsonb
+language plpgsql security definer set search_path = public as
+$fn$
+declare l jsonb; s record; it record; need int; short jsonb := '[]'::jsonb;
+        v_id bigint; v_ref text; v_after int;
+        v_lines jsonb := '[]'::jsonb; v_total numeric := 0; v_price numeric;
+begin
+  if not exists (select 1 from sites where id = p_site and paid_until >= current_date) then
+    return jsonb_build_object('ok', false, 'error', 'site');
+  end if;
+  if jsonb_typeof(p_lines) <> 'array'
+     or jsonb_array_length(p_lines) = 0 or jsonb_array_length(p_lines) > 50
+     or length(coalesce(p_customer::text, '')) > 4000 then
+    return jsonb_build_object('ok', false, 'error', 'lines');
+  end if;
+
+  -- Ціна й назва кожного рядка — з бази цього ж сайту
+  for l in select value from jsonb_array_elements(p_lines) loop
+    need := least(greatest(coalesce((l->>'qty')::int, 1), 1), 20);
+    select * into it from items
+     where id = (l->>'item_id')::bigint and site_id = p_site and collection = 'products';
+    if not found then
+      return jsonb_build_object('ok', false, 'error', 'item', 'item_id', l->>'item_id');
+    end if;
+    select st.price into v_price from stock st
+     where st.site_id = p_site and st.item_id = it.id
+       and st.size = coalesce(l->>'size', '') and st.color = coalesce(l->>'color', '');
+    if v_price is null or v_price <= 0 then
+      v_price := nullif(regexp_replace(coalesce(it.price, ''), '[^0-9.]', '', 'g'), '')::numeric;
+    end if;
+    if v_price is null or v_price <= 0 then
+      return jsonb_build_object('ok', false, 'error', 'price', 'item_id', it.id);
+    end if;
+    v_lines := v_lines || jsonb_build_array(jsonb_build_object(
+      'item_id', it.id,
+      'size',    coalesce(l->>'size', ''),
+      'color',   coalesce(l->>'color', ''),
+      'qty',     need,
+      'title',   btrim(coalesce(nullif(it.extra->>'brand', '') || ' ', '') || it.title),
+      'price',   v_price));
+    v_total := v_total + v_price * need;
+  end loop;
+
+  perform public.stock_release_expired();
+  perform public.stock_drop_hold(p_token);   -- своє відкладене зараз стане продажем
+
+  for l in select value from jsonb_array_elements(v_lines) loop
+    need := (l->>'qty')::int;
+    select * into s from stock
+     where site_id = p_site and item_id = (l->>'item_id')::bigint
+       and size = l->>'size' and color = l->>'color'
+     for update;
+    if found and s.qty - s.reserved < need then
+      short := short || jsonb_build_array(jsonb_build_object(
+        'item_id', s.item_id, 'size', s.size,
+        'title', l->>'title', 'left', greatest(s.qty - s.reserved, 0)));
+    end if;
+  end loop;
+
+  if jsonb_array_length(short) > 0 then
+    return jsonb_build_object('ok', false, 'short', short);
+  end if;
+
+  insert into orders (site_id, ref, status, customer, lines, total)
+  values (p_site, '', 'new', coalesce(p_customer, '{}'::jsonb), v_lines, v_total)
+  returning id into v_id;
+  v_ref := to_char(now(), 'DDMM') || '-' || lpad(v_id::text, 4, '0');
+  update orders set ref = v_ref where id = v_id;
+
+  for l in select value from jsonb_array_elements(v_lines) loop
+    need := (l->>'qty')::int;
+    update stock set qty = qty - need, updated_at = now()
+     where site_id = p_site and item_id = (l->>'item_id')::bigint
+       and size = l->>'size' and color = l->>'color'
+    returning qty into v_after;
+    if found then
+      insert into stock_moves (site_id, item_id, size, color, kind, delta, qty_after, note, order_ref, who)
+      values (p_site, (l->>'item_id')::bigint, l->>'size', l->>'color',
+              'sale', -need, v_after, 'замовлення з сайту', v_ref, 'сайт');
+    end if;
+  end loop;
+
+  return jsonb_build_object('ok', true, 'ref', v_ref, 'id', v_id, 'total', v_total);
+end
+$fn$;
+
+-- ---------- 7) Магазин підтвердив, що забрав ----------
 drop function if exists public.sync_ack(bigint, text[]);
 create or replace function public.sync_ack(p_site bigint, p_refs text[], p_short text[] default '{}')
 returns jsonb language plpgsql security definer set search_path = public as
