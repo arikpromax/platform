@@ -145,11 +145,19 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
   const activeCol = colByKey(tab) ?? null; // класичний режим
   const activeSec: SectionDef | null = useSections ? (sections[secIdx] ?? null) : null;
 
+  /* Відкрили картку — показуємо її з початку. Лише в момент відкриття:
+     раніше вікно стрибало вгору після будь-якої правки всередині (стрілка
+     біля фото, галочка, літера), бо змінювалась сама картка. */
+  const openKey = editing ? (editingCol?.key ?? "") + ":" + (editing.id ?? "new") : "";
+  useEffect(() => {
+    if (openKey && formRef.current) formRef.current.scrollTop = 0;
+  }, [openKey]);
+
   // Форма — вікно поверх сторінки. Поки воно відкрите, сторінку під ним
   // не гортаємо, а Esc закриває (окрім моменту збереження чи завантаження фото).
+  const isOpen = Boolean(editing);
   useEffect(() => {
-    if (!editing) return;
-    if (formRef.current) formRef.current.scrollTop = 0;
+    if (!isOpen) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKey = (e: KeyboardEvent) => {
@@ -162,7 +170,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
       document.body.style.overflow = prev;
       window.removeEventListener("keydown", onKey);
     };
-  }, [editing, busy, uploading]);
+  }, [isOpen, busy, uploading]);
 
   /* ---------- Завантаження ---------- */
 
@@ -1257,7 +1265,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
       {/* ---------- Склад і замовлення ---------- */}
       {hasStock && (useSections ? secIdx === stockIdx : tab === "__stock") && (
         <StockAdmin
-          key={"stock" + saveTick}
+          reloadTick={saveTick}
           site={site}
           canEdit={canEdit}
           onEdit={openCard}

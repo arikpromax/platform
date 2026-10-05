@@ -64,9 +64,13 @@ export default function StockAdmin({
   canEdit,
   onEdit,
   onAdd,
+  reloadTick,
 }: {
   site: Site;
   canEdit: boolean;
+  // змінюється після збереження картки: склад перечитується на місці,
+  // без перебудови — розкритий товар, пошук і місце на сторінці лишаються
+  reloadTick?: number;
   // відкриває картку товару в тій самій формі, що й каталог
   onEdit?: (itemId: number) => void;
   // створює новий товар тією ж формою
@@ -185,7 +189,7 @@ export default function StockAdmin({
     return () => {
       alive = false; // перемкнули вкладку — стару відповідь уже не застосовуємо
     };
-  }, [fetchAll]);
+  }, [fetchAll, reloadTick]);
 
   const refresh = async () => {
     setLoading(true);
