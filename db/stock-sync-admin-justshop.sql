@@ -1,0 +1,35 @@
+-- Just shop: склад веде УкрСклад (05.10.2026).
+--
+-- Кількість, ціни, акції й розміри приходять з УкрСкладу, нові товари там і
+-- заводять. В адмінці це лишається видно, але не міняється — обмін однаково
+-- перезаписав би:
+--   * «Склад»: без «−», «+», «рівно», «×» і «Додати розмір»;
+--   * картка товару: «Ціна», «Стара ціна» й «Розміри» лише для перегляду;
+--   * товари: без «+ Додати» і «Видалити цю картку».
+-- Назви, фото, описи, мітки й розділи міняються в адмінці, як і раніше.
+--
+-- Виконати один раз у Supabase → SQL Editor. Повторний запуск безпечний.
+-- Повернути як було: update sites set config = config - 'stockSync' where id = 106;
+
+update public.sites
+   set config = config || jsonb_build_object('stockSync', 'УкрСклад')
+ where id = 106;
+
+-- Пояснення у вкладці каталогу: стара ціна тепер приходить з «Ціни Акція»
+update public.sites
+   set config = jsonb_set(config, '{sections}', (
+         select jsonb_agg(
+                  case when s->>'name' = 'Каталог і розпродаж'
+                       then s || jsonb_build_object('note',
+                              'Товари й категорії. Ціни, акції, розміри й кількість приходять з УкрСкладу — ' ||
+                              'міняйте їх там. Якщо в УкрСкладі стоїть «Ціна Акція», на сайті стара ціна ' ||
+                              'перекреслена, а товар у «Розпродажі». Тут — назви, фото, описи, мітки й розділи.')
+                       else s end
+                  order by o)
+           from jsonb_array_elements(config->'sections') with ordinality as t(s, o)))
+ where id = 106 and jsonb_typeof(config->'sections') = 'array';
+
+select config->>'stockSync' as "склад веде",
+       (select s->>'note' from jsonb_array_elements(config->'sections') s
+         where s->>'name' = 'Каталог і розпродаж') as "пояснення в каталозі"
+  from public.sites where id = 106;

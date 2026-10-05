@@ -18,6 +18,9 @@ type Props = {
   onSubmit: (e: React.FormEvent) => void;
   onCancel: () => void;
   onDelete?: () => void; // тільки для наявних карток
+  // поля, які приходять з програми обліку (ціна, розміри): видно, але не міняються
+  locked?: string[];
+  lockedFrom?: string; // звідки приходять, напр. «УкрСклад»
 };
 
 /* Код промокоду. Без O/0 та I/1/L — їх плутають, коли диктують по телефону. */
@@ -41,6 +44,8 @@ export default function ItemForm({
   onSubmit,
   onCancel,
   onDelete,
+  locked,
+  lockedFrom,
 }: Props) {
   const get = (f: FieldDef): string => {
     // фото може жити і в extra — тоді на картці їх може бути кілька
@@ -92,6 +97,19 @@ export default function ItemForm({
           const id = `fld-${f.key}`;
           // сірий рядок-пояснення під полем (config → FieldDef.hint)
           const hint = f.hint ? <p className="fhint">{f.hint}</p> : null;
+
+          // приходить з програми обліку: показуємо, але не даємо міняти
+          if (locked?.includes(f.key))
+            return (
+              <div className="field" key={f.key}>
+                <label htmlFor={id}>{f.name}</label>
+                <input id={id} type="text" value={get(f)} readOnly disabled />
+                <p className="fhint">
+                  Приходить з {lockedFrom || "програми обліку"} — змінюйте там.
+                  {f.key === "price" && " Якщо в розмірів різні ціни, тут найменша з тих, що є."}
+                </p>
+              </div>
+            );
 
           if (f.type === "checkbox")
             return (

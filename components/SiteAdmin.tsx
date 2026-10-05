@@ -258,6 +258,11 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
   /* Залишки тягнемо один раз на вкладку, де є товари: у списку вони
      потрібні лише як пігулка, тож беремо мінімум полів. */
   const stockCol = site.config?.stockCollection ?? "products";
+  /* Склад веде програма обліку (УкрСклад): кількість, ціни, акції й розміри
+     приходять звідти, товари там заводять і прибирають. В адмінці це видно,
+     але не міняється — обмін однаково перезаписав би. */
+  const syncFrom = hasStock ? (site.config?.stockSync ?? "") : "";
+  const synced = (colKey: string) => Boolean(syncFrom) && colKey === stockCol;
   const needStock =
     hasStock &&
     (useSections ? (activeSec?.collections ?? []).includes(stockCol) : tab === stockCol);
@@ -806,7 +811,13 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
         </div>
       )}
 
-      {!col.noAdd && (
+      {synced(col.key) && (
+        <p className="note">
+          Нові товари, ціни, акції, розміри й кількість приходять з {syncFrom} — міняйте їх там.
+          Тут — назви, фото, описи, мітки й розділи.
+        </p>
+      )}
+      {!col.noAdd && !synced(col.key) && (
         <div className="addbar">
           <button
             className="btn btn--primary btn--sm"
@@ -1250,7 +1261,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
           site={site}
           canEdit={canEdit}
           onEdit={openCard}
-          onAdd={addCard}
+          onAdd={synced(stockCol) ? undefined : addCard}
         />
       )}
       {hasStock && (useSections ? secIdx === ordersIdx : tab === "__orders") && (
@@ -1368,7 +1379,9 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
                 setEditing(null);
                 setEditingCol(null);
               }}
-              onDelete={editing.id && !editingCol.noDelete ? () => remove(editing) : undefined}
+              onDelete={editing.id && !editingCol.noDelete && !synced(editingCol.key) ? () => remove(editing) : undefined}
+              locked={synced(editingCol.key) ? ["price", "old", site.config?.stockSizes ?? "sizes"] : undefined}
+              lockedFrom={syncFrom}
             />
           </div>
         </div>
