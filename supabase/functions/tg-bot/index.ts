@@ -936,11 +936,14 @@ async function track() {
 
 /* ---------- обмін із програмою обліку магазину ---------- */
 
-// Програма магазину — головна по товарах, кількості й цінах. Її скрипт стукає
-// сюди з ключем SYNC_KEY_<сайт> у заголовку X-Sync-Key:
-//   POST ?sync=stock&site=N   {items:[{sku,size,qty,price,old_price,name,brand,category,gender}], full}
-//   GET  ?sync=orders&site=N  — замовлення сайту для розхідних накладних
-//   POST ?sync=ack&site=N     {refs:[...]} — програма забрала ці замовлення
+// Програма магазину (УкрСклад) — головна по товарах, кількості й цінах. Її скрипт
+// стукає сюди з ключем SYNC_KEY_<сайт> у заголовку X-Sync-Key:
+//   POST ?sync=stock&site=N   {items:[{id,sku,size,qty,price,sale,name}], full, dry}
+//        id — ID товару в УкрСкладі (кожен розмір окремо), qty — абсолютний залишок;
+//        тригер шле змінені рядки, уночі — усі з full:true; dry:true нічого не змінює.
+//        У відповідь маркер: rows [{id,qty}] — скільки тепер на сайті, problems, conflicts.
+//   GET  ?sync=orders&site=N  — замовлення сайту для розхідних накладних (у рядках є id)
+//   POST ?sync=ack&site=N     {refs:[...], short:[...]} — програма забрала ці замовлення
 async function syncAllowed(site: number, req: Request) {
   const want = await keyOf(site, "SYNC_KEY");
   const got = req.headers.get("x-sync-key") ?? "";
@@ -1059,6 +1062,12 @@ async function onSync(kind: string, site: number, req: Request) {
       p_site: site, p_items: body.items, p_full: body.full === true, p_dry: dry,
     });
     if (dry) return json(res);
+    // Нічна звірка прийшла обрізаною — сайт нічого не обнулив, але власник має знати
+    if (res?.error === "full_small") {
+      await tell(site, "⚠️ Обмін з УкрСкладом: повний перелік прийшов неповним, " +
+        esc(String(res.message ?? "")) + ". Перевірте вивантаження в магазині.").catch((e) => console.error("tell", e));
+      return json(res);
+    }
     await warnOversold(site, res?.conflicts ?? [], "у магазині вже продали");
     const photos = await findPhotos(site).catch((e) => ({ error: String(e) }));
     return json({ ...res, photos });
@@ -1352,7 +1361,7 @@ async function linesInfo(o: Order): Promise<Map<number, ItemInfo>> {
 
 // Позначка версії: після заливки функції одразу видно в ?check=, який саме
 // код у ній лежить. Міняти щоразу, коли віддаю файл власнику на деплой.
-const BUILD = "2026-09-26-8";
+const BUILD = "2026-10-05-1";
 
 async function check(site: number) {
   const npKey = await npKeyOf(site);
