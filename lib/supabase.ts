@@ -80,6 +80,8 @@ export type SiteConfig = {
   // (напр. «УкрСклад»). Тоді в адмінці їх видно, але не міняють — обмін
   // однаково перезаписав би; товари теж заводять і прибирають там.
   stockSync?: string;
+  // з якої дати замовлення йдуть у програму обліку (раніші там розібрали вручну)
+  stockSyncSince?: string;
   // true — у адмінці зʼявляється вкладка «Бронювання» (готелі, номери)
   booking?: boolean;
   // true — вкладка «Підключення»: ключі Нової Пошти, оплати й обміну зі складом
@@ -174,6 +176,11 @@ export type Order = {
   np_return_ttn?: string;
   pay_state?: string;
   pay_info?: { amount?: number; test?: boolean; card?: string };
+  // обмін із програмою обліку (db/sync-shop.sql): коли й з яким статусом забрала,
+  // і коли зʼясувалось, що ту саму річ уже продали в магазині
+  synced_at?: string | null;
+  sync_status?: string;
+  oversold_at?: string | null;
 };
 
 /* ---------- Бронювання номерів ---------- */

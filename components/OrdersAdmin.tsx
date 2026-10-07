@@ -61,6 +61,42 @@ const fmtWhen = (iso: string) => {
 
 const money = (n: number) => Math.round(n).toLocaleString("uk-UA") + " грн";
 
+type SyncMark = { text: string; cls: string; title: string };
+
+/* Склад веде програма обліку (УкрСклад): біля замовлення видно, чи воно вже
+   там. Замовлення до запуску обміну (stockSyncSince) там розібрали вручну —
+   їх не позначаємо. */
+function syncMark(site: Site, o: Order): SyncMark | null {
+  const prog = site.config?.stockSync ?? "";
+  const since = site.config?.stockSyncSince ?? "";
+  if (!prog || (since && new Date(o.created_at) < new Date(since))) return null;
+  if (o.oversold_at) {
+    return {
+      text: prog + ": не вистачило товару",
+      cls: " pill--off",
+      title: "Ту саму річ уже продали в магазині. Звʼяжіться з покупцем: інший розмір або повернення грошей.",
+    };
+  }
+  const back = o.status === "cancelled" || o.status === "returned";
+  if (!o.synced_at) {
+    // не оплачене чи скасоване ще до передачі — у склад воно й не йде
+    if (back || o.pay_state === "wait" || o.pay_state === "failed") return null;
+    return {
+      text: prog + ": чекає",
+      cls: " pill--warn",
+      title: "Програма в магазині забере замовлення за кілька хвилин, щойно ввімкнений компʼютер з " + prog + ".",
+    };
+  }
+  if (back && o.sync_status !== o.status) {
+    return { text: prog + ": повернення чекає", cls: " pill--warn", title: "Програма в магазині оформить повернення за кілька хвилин." };
+  }
+  return {
+    text: prog + " ✓",
+    cls: " pill--ok",
+    title: (back ? "Повернення в " : "Видаткова в ") + prog + " оформлена " + fmtWhen(o.synced_at),
+  };
+}
+
 export default function OrdersAdmin({ site, canEdit }: { site: Site; canEdit: boolean }) {
   const supabase = getSupabase()!;
   const [orders, setOrders] = useState<Order[]>([]);
@@ -170,6 +206,7 @@ export default function OrdersAdmin({ site, canEdit }: { site: Site; canEdit: bo
     const open = openId === o.id;
     const c = o.customer ?? {};
     const who = [String(c["name"] ?? ""), String(c["phone"] ?? "")].filter(Boolean).join(" · ");
+    const mark = syncMark(site, o);
     return (
       <div key={o.id}>
         <div className="row">
@@ -199,6 +236,11 @@ export default function OrdersAdmin({ site, canEdit }: { site: Site; canEdit: bo
             >
               {STATUS[o.status]}
             </span>
+            {mark && (
+              <span className={"pill" + mark.cls} title={mark.title}>
+                {mark.text}
+              </span>
+            )}
             <button className="btn btn--ghost btn--sm" onClick={() => setOpenId(open ? null : o.id)}>
               {open ? "Згорнути" : "Відкрити"}
             </button>
@@ -218,6 +260,11 @@ export default function OrdersAdmin({ site, canEdit }: { site: Site; canEdit: bo
             ))}
 
             <div className="ordc">
+              {mark && (
+                <p>
+                  <span>{site.config?.stockSync}:</span> {mark.title}
+                </p>
+              )}
               {Object.entries(c)
                 .filter(([k, v]) => !HIDDEN.has(k) && v !== null && v !== "" && typeof v !== "object")
                 .map(([k, v]) => (
