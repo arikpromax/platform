@@ -28,9 +28,10 @@ alter table public.orders
   add column if not exists sync_status text not null default '',  -- з яким статусом прийняла
   add column if not exists oversold_at timestamptz;                -- коли зʼясувалось, що річ уже продали в магазині
 
--- Усе, що було до запуску обміну, магазину не надсилаємо — там уже розібрались вручну
+-- Усе, що було до запуску обміну, магазину не надсилаємо — там уже розібрались вручну.
+-- Лише замовлення до 06.10.2026: так повторний запуск файлу не сховає від магазину нові.
 update public.orders set synced_at = coalesce(synced_at, now()), sync_status = status
- where site_id = 106 and synced_at is null;
+ where site_id = 106 and synced_at is null and created_at < timestamptz '2026-10-06';
 
 -- ---------- 2) ID УкрСкладу і своя ціна на кожному розмірі ----------
 -- У УкрСкладі кожен розмір — окремий товар зі своєю ціною (Cortez 38 — 4000,
@@ -121,7 +122,7 @@ declare
   r record; s record; v_ord record; g record;
   v_item bigint; v_stock bigint; v_have int; v_known int;
   v_target int; v_pending int; v_touched bigint[] := '{}';
-  v_linked int := 0; v_added int := 0; v_changed int := 0; v_zeroed int := 0;
+  v_linked int := 0; v_added int := 0; v_changed int := 0; v_zeroed int := 0; v_skipped int := 0;
   v_created jsonb := '[]'::jsonb; v_problems jsonb := '[]'::jsonb;
   v_conflicts jsonb := '[]'::jsonb;
 begin
@@ -199,6 +200,12 @@ begin
     end if;
 
     if v_item is null then
+      -- товару немає в наявності — картку не заводимо: у повному переліку бувають
+      -- давно розпродані речі. Зʼявиться кількість — картка зʼявиться сама.
+      if r.qty = 0 then
+        v_skipped := v_skipped + 1;
+        continue;
+      end if;
       if public.sync_sku(r.sku) = '' then
         v_problems := v_problems || jsonb_build_array(jsonb_build_object('id', r.ext, 'why', 'новий ID без артикула'));
         continue;
@@ -364,7 +371,7 @@ begin
     'ok', true,
     'received', jsonb_array_length(p_items),
     'accepted', (select count(*) from _sync_in where stock_id is not null),
-    'linked', v_linked, 'new_sizes', v_added, 'changed', v_changed, 'zeroed', v_zeroed,
+    'linked', v_linked, 'skipped', v_skipped, 'new_sizes', v_added, 'changed', v_changed, 'zeroed', v_zeroed,
     'created', v_created, 'problems', v_problems, 'conflicts', v_conflicts,
     'rows', (select coalesce(jsonb_agg(jsonb_build_object('id', x.ext, 'qty', st.qty) order by x.n), '[]'::jsonb)
                from _sync_in x join stock st on st.id = x.stock_id));

@@ -1,0 +1,50 @@
+# Обмін УкрСклад <-> сайт Just shop.
+# Скопіюйте цей файл як ukrsklad-sync.ini (поруч із run.bat) і заповніть.
+
+[site]
+url = https://ortiatyxntdikaldepbp.supabase.co/functions/v1/tg-bot
+site_id = 106
+# Ключ обміну: той самий, що в адмінці сайту «Підключення» -> «Ключ обміну».
+# Власник передає його окремо. Нікому не пересилайте.
+key =
+
+[database]
+host = localhost
+db_port = 3053
+db_path = C:/ProgramData/UkrSklad7S/db/SKLAD.TCB
+user = SYSDBA
+password =
+db_charset = WIN1251
+driver = org.firebirdsql.jdbc.FBDriver
+
+[ukrsklad]
+# Активна фірма, склад, клієнт «Інтернет-магазин», користувач, від якого створюються документи
+firma_id =
+sklad_id =
+client_id =
+doc_user_id =
+
+[documents]
+# Видаткова
+sale_header = VNAKL
+sale_lines = VNAKL_
+# Повернення (скасоване чи повернуте замовлення). Таблиці з тими самими полями, що й у видаткової.
+# Порожньо — повернення не робимо, такі замовлення чекають, доки заповните.
+return_header =
+return_lines =
+
+[stock]
+# Запит, звідки брати залишки й ціни (див. stock.sql)
+query_file = stock.sql
+
+[timing]
+# Як часто ходити на сайт, секунд
+interval_sec = 120
+# Після якої години раз на добу слати повний перелік (чого в ньому немає — на сайті 0)
+full_hour = 3
+
+[mode]
+# true — пробний режим: нічого не пише в УкрСклад і нічого не змінює на сайті, лише журнал
+dry = true
+# Перед видатковою перевіряти, чи є товар в УкрСкладі (раптом щойно продали в магазині)
+check_stock = true
