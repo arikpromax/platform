@@ -7,7 +7,7 @@
  *
  *   1. забирає з сайту нові замовлення й робить на них видаткові
  *      (від одного клієнта «Інтернет-магазин»); скасування й повернення —
- *      документом повернення;
+ *      накладною на повернення від клієнта (VZNAKL, тип документа 12);
  *   2. каже сайту, які замовлення провела (і яких не змогла — товару вже немає);
  *   3. читає в УкрСкладі залишки й ціни і шле на сайт те, що змінилось,
  *      а раз на добу — повний перелік.
@@ -119,8 +119,8 @@ public class UkrSkladSync {
         dry = "true".equalsIgnoreCase(cfg("mode", "dry", "false"));
         saleHead = cfg("documents", "sale_header", "VNAKL");
         saleLines = cfg("documents", "sale_lines", "VNAKL_");
-        retHead = cfg("documents", "return_header", null);
-        retLines = cfg("documents", "return_lines", null);
+        retHead = cfg("documents", "return_header", "VZNAKL");
+        retLines = cfg("documents", "return_lines", "VZNAKL_");
         for (String t : Arrays.asList(saleHead, saleLines, retHead, retLines)) {
             if (t != null && !t.matches("[A-Za-z0-9_]+")) {
                 throw new IllegalStateException("Назва таблиці в [documents] може містити лише латиницю, цифри й «_»: " + t);
