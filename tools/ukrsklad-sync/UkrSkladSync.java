@@ -218,7 +218,12 @@ public class UkrSkladSync {
     /* ---------- база УкрСкладу ---------- */
 
     static Connection openDb() throws Exception {
-        Class.forName(cfg("database", "driver", "org.firebirdsql.jdbc.FBDriver"));
+        String driver = cfg("database", "driver", "org.firebirdsql.jdbc.FBDriver");
+        try {
+            Class.forName(driver);
+        } catch (ClassNotFoundException e) {
+            throw new IllegalStateException("немає драйвера Firebird (" + driver + ") — покладіть jar-файли Jaybird у теку lib");
+        }
         String url = "jdbc:firebirdsql:" + cfg("database", "host", "localhost") + "/"
                 + cfg("database", "db_port", "3050") + ":" + need("database", "db_path");
         Properties p = new Properties();
@@ -482,7 +487,9 @@ public class UkrSkladSync {
         String when = str(o.get("created_at"));
         String stamp;
         try {
-            stamp = OffsetDateTime.parse(when).atZoneSameInstant(ZoneId.systemDefault())
+            // завжди київський час, а не пояс комп'ютера: номер того самого замовлення
+            // не має змінитись, навіть якщо програму перенесуть на інший комп'ютер
+            stamp = OffsetDateTime.parse(when).atZoneSameInstant(ZoneId.of("Europe/Kiev"))
                     .format(DateTimeFormatter.ofPattern("yyMMdd-HHmm"));
         } catch (Exception e) {
             stamp = LocalDate.now().format(DateTimeFormatter.ofPattern("yyMMdd")) + "-0000";
