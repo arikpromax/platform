@@ -19,10 +19,10 @@ driver = org.firebirdsql.jdbc.FBDriver
 
 [ukrsklad]
 # Активна фірма, склад, клієнт «Інтернет-магазин», користувач, від якого створюються документи
-firma_id =
-sklad_id =
-client_id =
-doc_user_id =
+firma_id = 1
+sklad_id = 1
+client_id = 3
+doc_user_id = 2
 
 [documents]
 # Видаткова

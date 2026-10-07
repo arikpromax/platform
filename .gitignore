@@ -43,3 +43,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# налаштування програми обміну з паролем до бази й ключем — не публікувати
+tools/ukrsklad-sync/ukrsklad-sync.ini
+tools/ukrsklad-sync/ukrsklad-sync.log*
+tools/ukrsklad-sync/ukrsklad-sync.state
+tools/ukrsklad-sync/ukrsklad-sync.lock
