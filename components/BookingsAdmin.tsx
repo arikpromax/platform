@@ -152,6 +152,9 @@ export default function BookingsAdmin({ site, canEdit }: { site: Site; canEdit: 
     [rooms],
   );
   const nameOf = (key: string) => rooms.find((x) => keyOf(x) === key)?.title ?? key;
+  // ціна за ніч із картки номера («600», «600 грн» — беремо саме число)
+  const priceOf = (key: string) =>
+    Number(String(rooms.find((x) => keyOf(x) === key)?.price ?? "").replace(/[^\d.]/g, "")) || 0;
 
   /* Хто займає кожну ніч кожного номера: «номер|дата» → броні */
   const occ = useMemo(() => {
@@ -281,7 +284,7 @@ export default function BookingsAdmin({ site, canEdit }: { site: Site; canEdit: 
         children: Math.max(0, Number(form.children) || 0),
         guest: { name: form.name.trim(), phone: form.phone.trim(), note: form.note.trim() },
         extras: {},
-        total: 0,
+        total: priceOf(calRoom) * nightsBetween(form.from, form.to),
         status: "confirmed",
         source: "phone",
         tg_sent_at: new Date().toISOString(), // записав власник — у Telegram не дублюємо
@@ -375,6 +378,46 @@ export default function BookingsAdmin({ site, canEdit }: { site: Site; canEdit: 
     [list, filter, today],
   );
 
+  /* ---------- сьогодні: хто заїжджає, виїжджає й живе ---------- */
+
+  const todayInfo = useMemo(() => {
+    const act = list.filter((b) => b.status !== "cancelled");
+    const week = addDays(today, 7);
+    return {
+      arrive: act.filter((b) => b.date_in === today),
+      leave: act.filter((b) => b.date_out === today),
+      stay: act.filter((b) => b.date_in < today && b.date_out > today),
+      soon: act
+        .filter((b) => b.date_in > today && b.date_in <= week)
+        .sort((a, b) => a.date_in.localeCompare(b.date_in)),
+    };
+  }, [list, today]);
+
+  // один рядок гостя в блоці «Сьогодні»: клік — показати бронь у календарі
+  const guestRow = (b: Booking, note: string) => {
+    const g = b.guest ?? {};
+    return (
+      <div key={b.id} className="bktoday__item" onClick={() => pickBooking(b)}>
+        <b>{b.room_name}</b>
+        <span>{String(g.name || "Без імені")}</span>
+        {g.phone && (
+          <a href={"tel:" + String(g.phone).replace(/[^\d+]/g, "")} onClick={(e) => e.stopPropagation()}>
+            {String(g.phone)}
+          </a>
+        )}
+        <em>{note}</em>
+      </div>
+    );
+  };
+  const todayCol = (title: string, items: Booking[], note: (b: Booking) => string) => (
+    <div className="bktoday__col">
+      <h3>
+        {title} <span>{items.length}</span>
+      </h3>
+      {items.length ? items.map((b) => guestRow(b, note(b))) : <p className="note">нікого</p>}
+    </div>
+  );
+
   /* ---------- вигляд ---------- */
 
   const calTitle = `${MONTHS[month.m]} ${month.y}`;
@@ -384,6 +427,21 @@ export default function BookingsAdmin({ site, canEdit }: { site: Site; canEdit: 
     <div className="bka">
       {/* ===== ліва колонка ===== */}
       <div className="bka__main">
+        <div className="card bktoday">
+          <h2>Сьогодні, {dayUA(today)}</h2>
+          <div className="bktoday__cols">
+            {todayCol("Заїжджають", todayInfo.arrive, (b) => nightsUA(nightsBetween(b.date_in, b.date_out)))}
+            {todayCol("Виїжджають", todayInfo.leave, () => "до обіду")}
+            {todayCol("Живуть зараз", todayInfo.stay, (b) => "до " + dayUA(b.date_out))}
+          </div>
+          {todayInfo.soon.length > 0 && (
+            <div className="bktoday__soon">
+              <h3>Найближчі 7 днів</h3>
+              {todayInfo.soon.map((b) => guestRow(b, dayUA(b.date_in) + " → " + dayUA(b.date_out)))}
+            </div>
+          )}
+        </div>
+
         {conflicts.length > 0 && (
           <div className="banner banner--warn">
             {conflicts.map((c) => (
@@ -397,38 +455,48 @@ export default function BookingsAdmin({ site, canEdit }: { site: Site; canEdit: 
         {canEdit && (
           <div className="card bkform">
             <h2>Нова бронь</h2>
-            <ol className="bkform__steps">
-              <li className={calRoom ? "is-done" : ""}>
-                <b>Номер</b>
-                <div className="bkform__rooms">
-                  {rooms.map((r) => (
-                    <button
-                      key={r.id}
-                      type="button"
-                      className={`btn btn--sm ${calRoom === keyOf(r) ? "btn--primary" : "btn--ghost"}`}
-                      onClick={() => {
-                        setCalRoom(keyOf(r));
-                        setSel(null);
-                      }}
-                    >
-                      {r.title}
-                    </button>
-                  ))}
+            {/* Номер і дати обираються в календарі — тут лише підсумок,
+                щоб не було двох однакових рядів кнопок */}
+            <dl className="bksum">
+              <div>
+                <dt>Номер</dt>
+                <dd>
+                  <b>{calRoom ? nameOf(calRoom) : "—"}</b>
+                  <span className="bksum__hint">змінити — кнопками над календарем</span>
+                </dd>
+              </div>
+              <div>
+                <dt>Дати</dt>
+                <dd>
+                  {picking ? (
+                    <span className="bksum__wait">{dayUA(form.from)} — тепер натисніть день виїзду</span>
+                  ) : form.from ? (
+                    <b>
+                      {dayUA(form.from)} — {dayUA(form.to)} · {nightsUA(nightsBetween(form.from, form.to))}
+                    </b>
+                  ) : (
+                    <span className="bksum__hint">натисніть у календарі день заїзду, потім — день виїзду</span>
+                  )}
+                </dd>
+              </div>
+              {form.from && !picking && check.ok && (
+                <div>
+                  <dt>Сума</dt>
+                  <dd>
+                    {priceOf(calRoom) ? (
+                      <b>
+                        {nightsUA(nightsBetween(form.from, form.to))} × {money(priceOf(calRoom))} ={" "}
+                        {money(priceOf(calRoom) * nightsBetween(form.from, form.to))}
+                      </b>
+                    ) : (
+                      <span className="bksum__hint">ціну номера не вказано — впишіть її у «Номерах і цінах»</span>
+                    )}
+                  </dd>
                 </div>
-              </li>
-              <li className={form.from && form.to ? "is-done" : ""}>
-                <b>Дати</b>
-                <span className="bkform__hint">
-                  {picking
-                    ? "Тепер натисніть у календарі день виїзду"
-                    : form.from
-                      ? `${dayUA(form.from)} — ${dayUA(form.to)}`
-                      : "Натисніть у календарі праворуч день заїзду, потім — день виїзду"}
-                </span>
-              </li>
-            </ol>
+              )}
+            </dl>
 
-            {form.from && !picking && <div className={`status status--${check.ok ? "ok" : "err"}`}>{check.text}</div>}
+            {form.from && !picking && !check.ok && <div className="status status--err">{check.text}</div>}
 
             <div className="grid2">
               <div className="field">

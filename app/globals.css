@@ -366,16 +366,33 @@ body{
   margin-bottom:12px;padding:10px 12px;border-radius:11px;background:var(--err-bg)}
 .bka__clear .note{margin:0}
 
-/* нова бронь — двома кроками: номер, потім дати в календарі */
-.bkform__steps{list-style:none;counter-reset:st;margin:0 0 14px;padding:0;display:grid;gap:12px}
-.bkform__steps li{counter-increment:st;display:grid;grid-template-columns:28px 1fr;gap:4px 10px;align-items:center}
-.bkform__steps li::before{content:counter(st);grid-row:span 2;width:28px;height:28px;border-radius:50%;
-  display:grid;place-items:center;font-weight:800;font-size:.85rem;background:var(--cyan-tint);color:var(--teal-ink)}
-.bkform__steps li.is-done::before{content:"✓";background:var(--teal);color:#fff}
-.bkform__steps b{font-size:.92rem}
-.bkform__rooms{display:flex;gap:6px;flex-wrap:wrap}
-.bkform__hint{font-size:.9rem;color:var(--muted)}
+/* нова бронь: підсумок того, що обрано в календарі */
+.bksum{margin:0 0 14px;display:grid;gap:8px}
+.bksum>div{display:grid;grid-template-columns:70px 1fr;gap:10px;align-items:baseline}
+.bksum dt{font-size:.82rem;font-weight:700;color:var(--muted)}
+.bksum dd{margin:0;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;font-size:.95rem}
+.bksum__hint{font-size:.85rem;color:var(--muted)}
+.bksum__wait{font-weight:700;color:#B4741A}
 .bkform .status{margin-top:4px}
+
+/* сьогодні: хто заїжджає, виїжджає й живе */
+.bktoday h2{margin-bottom:12px}
+.bktoday__cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media(max-width:700px){.bktoday__cols{grid-template-columns:minmax(0,1fr)}}
+.bktoday__col h3,.bktoday__soon h3{margin:0 0 8px;font-size:.82rem;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.bktoday__col h3 span{display:inline-grid;place-items:center;min-width:20px;height:20px;margin-left:4px;padding:0 6px;
+  border-radius:999px;background:var(--cyan-tint);color:var(--teal-ink);font-size:.75rem;letter-spacing:0}
+.bktoday__col .note{margin:0}
+.bktoday__item{display:grid;gap:1px;padding:9px 11px;margin-bottom:6px;border:1.5px solid var(--line);border-radius:11px;
+  cursor:pointer;font-size:.88rem;transition:border-color .15s}
+.bktoday__item:hover{border-color:var(--teal)}
+.bktoday__item b{color:var(--teal-ink)}
+.bktoday__item a{color:var(--ink);font-weight:600}
+.bktoday__item em{font-style:normal;font-size:.8rem;color:var(--muted)}
+.bktoday__soon{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px}
+.bktoday__soon h3{grid-column:1/-1}
+.bktoday__soon .bktoday__item{margin:0}
 
 /* картки броней */
 .bklist{display:grid;gap:10px}
