@@ -1375,7 +1375,7 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
           <div className="modal-form" ref={formRef} role="dialog" aria-modal="true">
             <ItemForm
               heading={editing.id ? `Редагування: ${editing.title}` : "Нова картка"}
-              fields={editingCol.fields}
+              fields={editingCol.fields.filter((f) => isAdmin || !f.adminOnly)}
               value={editing}
               options={selOptions}
               busy={busy}

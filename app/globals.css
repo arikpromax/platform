@@ -130,6 +130,11 @@ body{
 
 /* сірий рядок-пояснення під полем (FieldDef.hint) */
 .fhint{margin:5px 0 0;color:var(--muted);font-size:.84em;line-height:1.45}
+/* заголовок блоку всередині картки (FieldDef type: heading) */
+.fhead{margin:26px 0 12px;padding-top:16px;border-top:1px solid rgba(120,140,170,.25)}
+.fhead:first-child{margin-top:4px;padding-top:0;border-top:none}
+.fhead h3{margin:0;font-size:1.02em;font-weight:800;letter-spacing:.01em}
+.fhead p{margin:4px 0 0;color:var(--muted);font-size:.84em;line-height:1.45}
 /* пояснення вгорі вкладки-розділу (SectionDef.note) */
 .snote{margin:0 0 14px;padding:11px 14px;border-radius:10px;
   background:rgba(120,140,170,.10);border:1px solid rgba(120,140,170,.22);

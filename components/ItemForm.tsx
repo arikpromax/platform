@@ -98,6 +98,15 @@ export default function ItemForm({
           // сірий рядок-пояснення під полем (config → FieldDef.hint)
           const hint = f.hint ? <p className="fhint">{f.hint}</p> : null;
 
+          // заголовок блоку: ділить довгу картку на зрозумілі частини
+          if (f.type === "heading")
+            return (
+              <div className="fhead" key={f.key}>
+                <h3>{f.name}</h3>
+                {f.hint && <p>{f.hint}</p>}
+              </div>
+            );
+
           // приходить з програми обліку: показуємо, але не даємо міняти
           if (locked?.includes(f.key))
             return (

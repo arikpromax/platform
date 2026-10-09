@@ -497,3 +497,286 @@ set config = jsonb_set(
   )
 )
 where s.id = 3;
+
+-- ---------- 15) Додатки за доплату (моцарела, авокадо…) ----------
+-- Пишемо по одному в рядок: «Назва = ціна». Наприклад:
+--   Mozzarella = 8
+--   Awokado = 6
+-- На сайті при додаванні страви в кошик гість побачить вікно з цим
+-- списком і зможе позначити потрібне; доплата додається до ціни.
+update public.sites s
+set config = jsonb_set(
+  s.config,
+  '{collections}',
+  (
+    select jsonb_agg(
+      case
+        when c->>'key' = 'menu' and not (c->'fields' @> '[{"key":"addons"}]'::jsonb)
+        then jsonb_set(c, '{fields}', (c->'fields') || '[
+               {"type":"textarea","key":"addons","name":"Додатки за доплату","extra":true,
+                "hint":"По одному в рядок, у форматі «Назва = ціна». Наприклад: Mozzarella = 8. Гість обере їх при додаванні страви в кошик, доплата піде до ціни. Порожньо — вікна не буде."}
+             ]'::jsonb)
+        else c
+      end
+      order by idx
+    )
+    from jsonb_array_elements(s.config->'collections') with ordinality as t(c, idx)
+  )
+)
+where s.id = 3;
+
+-- Ставимо поле одразу під ціною за акцією, щоб усе про гроші було поруч
+update public.sites s
+set config = jsonb_set(
+  s.config,
+  '{collections}',
+  (
+    select jsonb_agg(
+      case when c->>'key' = 'menu' then jsonb_set(c, '{fields}', m.arr) else c end
+      order by idx
+    )
+    from jsonb_array_elements(s.config->'collections') with ordinality as t(c, idx)
+    left join lateral (
+      select jsonb_agg(f order by pos, i) as arr
+      from (
+        select f, i,
+          case f->>'key'
+            when 'title' then 1   when 'price' then 2   when 'sale_price' then 3
+            when 'addons' then 4
+            when 'image' then 5   when 'cat' then 6     when 'pcs' then 7
+            when 'vol' then 8     when 'spicy' then 9   when 'veg' then 10
+            when 'promo' then 11  when 'pl' then 12     when 'ua' then 13
+            when 'en' then 14     when 'img' then 15
+            when 'out' then 16    when 'neu' then 17
+            when 'day_from' then 18 when 'day_to' then 19
+            when 'show_from' then 20 when 'show_to' then 21
+            when 'drink_price' then 22
+            when 'drinks' then 23 when 'drink_list' then 24
+            when 'sauces' then 25 when 'sauce_list' then 26
+            else 100 + i
+          end as pos
+        from jsonb_array_elements(c->'fields') with ordinality t1(f, i)
+      ) z
+    ) m on c->>'key' = 'menu'
+  )
+)
+where s.id = 3;
+
+-- ---------- 16) Порядок в адмінці ----------
+--  • картка страви поділена на блоки із заголовками замість 26 полів підряд
+--  • «Промо» тепер «Хіт місяця» — як на сайті
+--  • гострота, години й дні — вибір зі списку, а не ввід руками
+--  • коротші назви, пояснення — сірим рядком під полем; скрізь «zł»
+--  • технічні коди бачить лише адмін платформи, клієнт — ні
+--  • тубус вмикається галочкою в самій страві (раніше список був у коді)
+--  • фото тубуса й безкоштовні напої за замовчуванням — у «Режимі роботи»
+--  • банер вихідного — ще й англійською
+--
+--  Поля, яких цей крок не знає, НЕ губляться — дописуються в кінець картки.
+--  Потребує оновленої платформи (типи heading і adminOnly).
+
+update public.sites s
+set config = jsonb_set(
+  s.config,
+  '{collections}',
+  (
+    select jsonb_agg(
+      case
+        when c->>'key' = 'menu' then jsonb_set(c, '{fields}',
+          '[
+  {"type":"heading","key":"h_main","name":"Основне"},
+  {"type":"text","key":"title","name":"Назва",
+   "hint":"Так страву підписано в меню. Наприклад: Philadelphia"},
+  {"type":"select-collection","key":"cat","name":"Розділ меню","extra":true,"from":"cats",
+   "hint":"У якій вкладці меню показувати страву. Список береться з «Розділів меню» нижче."},
+  {"type":"image","key":"image","name":"Фото страви",
+   "hint":"Найкраще — квадратне фото на білому тлі. Не завантажите — сайт покаже вбудоване."},
+  {"type":"text","key":"price","name":"Ціна, zł",
+   "hint":"Саме число, без zł. Наприклад: 45"},
+  {"type":"text","key":"sale_price","name":"Ціна за акцією, zł","extra":true,
+   "hint":"Заповніть, щоб запустити акцію: стара ціна стане закресленою, поруч зʼявиться нова і жовта плашка «Promocja». Щоб прибрати акцію — очистіть поле."},
+
+  {"type":"heading","key":"h_desc","name":"Опис"},
+  {"type":"textarea","key":"pl","name":"Склад польською","extra":true,
+   "hint":"Через кому. Наприклад: łosoś, ser, ogórek"},
+  {"type":"textarea","key":"ua","name":"Склад українською","extra":true},
+  {"type":"textarea","key":"en","name":"Склад англійською","extra":true},
+  {"type":"text","key":"pcs","name":"Кількість шматочків","extra":true,
+   "hint":"Наприклад: 8. На фото буде «8 szt»."},
+  {"type":"text","key":"vol","name":"Підпис замість кількості","extra":true,
+   "hint":"Для напоїв і сетів: «0,33 l» або «36 szt + burger». Якщо заповнено — показується замість кількості шматочків."},
+
+  {"type":"heading","key":"h_flags","name":"Позначки","hint":"Плашки над фото страви."},
+  {"type":"checkbox","key":"promo","name":"Хіт місяця","extra":true,
+   "hint":"Страва стає першою в меню з помаранчевою плашкою «Hit miesiąca». На напої й соуси не впливає."},
+  {"type":"checkbox","key":"neu","name":"Новинка","extra":true,
+   "hint":"Зелена плашка «Nowość». На ціну не впливає."},
+  {"type":"select","key":"spicy","name":"Гострота","extra":true,
+   "options":[{"value":"","label":"Не гостре"},{"value":"1","label":"Трохи гостре"},{"value":"2","label":"Гостре"},{"value":"3","label":"Дуже гостре"}],
+   "hint":"Над фото зʼявляться перчики — від одного до трьох."},
+  {"type":"checkbox","key":"veg","name":"Вегетаріанська","extra":true,
+   "hint":"Над фото зʼявиться листочок."},
+  {"type":"checkbox","key":"out","name":"Нема в наявності","extra":true,
+   "hint":"Страва лишається в меню, але замовити її не можна. Зніміть галочку, коли знову буде."},
+
+  {"type":"heading","key":"h_extra","name":"Додатки й тубус","hint":"Усе це гість вибирає, коли кладе страву в кошик."},
+  {"type":"textarea","key":"addons","name":"Додатки за доплату","extra":true,
+   "hint":"По одному в рядок: «Назва = ціна». Наприклад: Mozzarella = 8. Порожньо — вікна з додатками не буде."},
+  {"type":"checkbox","key":"tube","name":"Можна в тубусі","extra":true,
+   "hint":"У страви зʼявиться галочка «W tubusie». Доплата за тубус — у вкладці «Доставка та ціни», фото тубуса — у «Режимі роботи»."},
+
+  {"type":"heading","key":"h_drinks","name":"Напої до страви","hint":"Безкоштовні й платні працюють разом: спершу гість обере подарункові, потім платний."},
+  {"type":"select","key":"drinks","name":"Безкоштовних напоїв","extra":true,
+   "options":[{"value":"","label":"Немає"},{"value":"1","label":"1 напій"},{"value":"2","label":"2 напої"},{"value":"3","label":"3 напої"},{"value":"4","label":"4 напої"}],
+   "hint":"Скільки напоїв гість отримає в подарунок. Сайт попросить обрати рівно стільки."},
+  {"type":"text","key":"drink_price","name":"Платний напій: доплата, zł","extra":true,
+   "hint":"Впишіть суму — у страви зʼявиться галочка «з напоєм», і гість сам обере напій за цю доплату. Порожньо — галочки немає."},
+  {"type":"multi-collection","key":"drink_list","name":"Які напої можна обрати","extra":true,
+   "from":"menu","whereExtra":{"key":"cat","value":"drinks"},
+   "hint":"Діє і на платний напій, і на безкоштовні. Нічого не позначено: для платного — усі напої меню, для безкоштовних — ті, що задані в «Режимі роботи»."},
+
+  {"type":"heading","key":"h_sauces","name":"Соуси до страви","hint":"Так само: безкоштовні й платні можна поєднувати."},
+  {"type":"select","key":"sauces","name":"Безкоштовних соусів","extra":true,
+   "options":[{"value":"","label":"Немає"},{"value":"1","label":"1 соус"},{"value":"2","label":"2 соуси"},{"value":"3","label":"3 соуси"},{"value":"4","label":"4 соуси"}],
+   "hint":"Скільки соусів гість отримає в подарунок."},
+  {"type":"text","key":"sauce_price","name":"Платний соус: доплата, zł","extra":true,
+   "hint":"Впишіть суму — у страви зʼявиться галочка «з соусом», і гість сам обере соус за цю доплату. Порожньо — галочки немає."},
+  {"type":"multi-collection","key":"sauce_list","name":"Які соуси можна обрати","extra":true,
+   "from":"menu","whereExtra":{"key":"cat","value":"sosy"},
+   "hint":"Діє і на платний соус, і на безкоштовні. Нічого не позначено — усі соуси меню."},
+
+  {"type":"heading","key":"h_when","name":"Коли показувати","hint":"Усе порожнє — страва в меню завжди. Наприклад, бізнес-ланч: з понеділка до пʼятниці, з 12:00 до 15:00."},
+  {"type":"select","key":"day_from","name":"З дня","extra":true,
+   "options":[{"value":"","label":"Щодня"},{"value":"1","label":"Понеділок"},{"value":"2","label":"Вівторок"},{"value":"3","label":"Середа"},{"value":"4","label":"Четвер"},{"value":"5","label":"Пʼятниця"},{"value":"6","label":"Субота"},{"value":"7","label":"Неділя"}]},
+  {"type":"select","key":"day_to","name":"До дня (включно)","extra":true,
+   "options":[{"value":"","label":"Щодня"},{"value":"1","label":"Понеділок"},{"value":"2","label":"Вівторок"},{"value":"3","label":"Середа"},{"value":"4","label":"Четвер"},{"value":"5","label":"Пʼятниця"},{"value":"6","label":"Субота"},{"value":"7","label":"Неділя"}],
+   "hint":"Щоб працювало, оберіть обидва дні."},
+  {"type":"select","key":"show_from","name":"З години","extra":true,"options":[{"value":"","label":"Без обмеження"},{"value":"06:00","label":"06:00"},{"value":"06:30","label":"06:30"},{"value":"07:00","label":"07:00"},{"value":"07:30","label":"07:30"},{"value":"08:00","label":"08:00"},{"value":"08:30","label":"08:30"},{"value":"09:00","label":"09:00"},{"value":"09:30","label":"09:30"},{"value":"10:00","label":"10:00"},{"value":"10:30","label":"10:30"},{"value":"11:00","label":"11:00"},{"value":"11:30","label":"11:30"},{"value":"12:00","label":"12:00"},{"value":"12:30","label":"12:30"},{"value":"13:00","label":"13:00"},{"value":"13:30","label":"13:30"},{"value":"14:00","label":"14:00"},{"value":"14:30","label":"14:30"},{"value":"15:00","label":"15:00"},{"value":"15:30","label":"15:30"},{"value":"16:00","label":"16:00"},{"value":"16:30","label":"16:30"},{"value":"17:00","label":"17:00"},{"value":"17:30","label":"17:30"},{"value":"18:00","label":"18:00"},{"value":"18:30","label":"18:30"},{"value":"19:00","label":"19:00"},{"value":"19:30","label":"19:30"},{"value":"20:00","label":"20:00"},{"value":"20:30","label":"20:30"},{"value":"21:00","label":"21:00"},{"value":"21:30","label":"21:30"},{"value":"22:00","label":"22:00"},{"value":"22:30","label":"22:30"},{"value":"23:00","label":"23:00"},{"value":"23:30","label":"23:30"}]},
+  {"type":"select","key":"show_to","name":"Ховати після","extra":true,"options":[{"value":"","label":"Без обмеження"},{"value":"06:00","label":"06:00"},{"value":"06:30","label":"06:30"},{"value":"07:00","label":"07:00"},{"value":"07:30","label":"07:30"},{"value":"08:00","label":"08:00"},{"value":"08:30","label":"08:30"},{"value":"09:00","label":"09:00"},{"value":"09:30","label":"09:30"},{"value":"10:00","label":"10:00"},{"value":"10:30","label":"10:30"},{"value":"11:00","label":"11:00"},{"value":"11:30","label":"11:30"},{"value":"12:00","label":"12:00"},{"value":"12:30","label":"12:30"},{"value":"13:00","label":"13:00"},{"value":"13:30","label":"13:30"},{"value":"14:00","label":"14:00"},{"value":"14:30","label":"14:30"},{"value":"15:00","label":"15:00"},{"value":"15:30","label":"15:30"},{"value":"16:00","label":"16:00"},{"value":"16:30","label":"16:30"},{"value":"17:00","label":"17:00"},{"value":"17:30","label":"17:30"},{"value":"18:00","label":"18:00"},{"value":"18:30","label":"18:30"},{"value":"19:00","label":"19:00"},{"value":"19:30","label":"19:30"},{"value":"20:00","label":"20:00"},{"value":"20:30","label":"20:30"},{"value":"21:00","label":"21:00"},{"value":"21:30","label":"21:30"},{"value":"22:00","label":"22:00"},{"value":"22:30","label":"22:30"},{"value":"23:00","label":"23:00"},{"value":"23:30","label":"23:30"}],
+   "hint":"Після цієї години страва зникає з меню сама."},
+
+  {"type":"heading","key":"h_tech","name":"Технічне","adminOnly":true,"hint":"Бачить лише адмін платформи."},
+  {"type":"text","key":"img","name":"Код вбудованого фото","extra":true,"adminOnly":true,
+   "hint":"Не міняти: за ним страва бере фото з сайту, якщо своє не завантажене."}
+]'::jsonb
+          || coalesce((
+               select jsonb_agg(f order by i)
+               from jsonb_array_elements(c->'fields') with ordinality t1(f, i)
+               where not (f->>'key' = any (array[
+                 'h_main','title','cat','image','price','sale_price',
+                 'h_desc','pl','ua','en','pcs','vol',
+                 'h_flags','promo','neu','spicy','veg','out',
+                 'h_extra','addons','tube',
+                 'h_drinks','drinks','drink_price','drink_list',
+                 'h_sauces','sauces','sauce_price','sauce_list',
+                 'h_when','day_from','day_to','show_from','show_to',
+                 'h_tech','img',
+                 'sale','fill','pos']))
+             ), '[]'::jsonb))
+
+        when c->>'key' = 'settings' then jsonb_set(c, '{fields}',
+          '[
+  {"type":"heading","key":"h_day","name":"Вихідний"},
+  {"type":"checkbox","key":"dayoff","name":"Сьогодні вихідний — сайт закрито","extra":true,
+   "hint":"Поставте зранку: гість побачить банер і замовити не зможе. Наступного дня галочку зніміть."},
+  {"type":"text","key":"msg_pl","name":"Текст банера польською","extra":true},
+  {"type":"text","key":"msg_ua","name":"Текст банера українською","extra":true},
+  {"type":"text","key":"msg_en","name":"Текст банера англійською","extra":true,
+   "hint":"Можна лишити порожнім."},
+
+  {"type":"heading","key":"h_hours","name":"Години кухні",
+   "hint":"Від них залежать години на сайті й те, коли гість може замовити «якнайшвидше». Поза ними замовлення приймаються з вибором години."},
+  {"type":"select","key":"open_from","name":"Кухня починає о","extra":true,"options":[{"value":"06:00","label":"06:00"},{"value":"06:30","label":"06:30"},{"value":"07:00","label":"07:00"},{"value":"07:30","label":"07:30"},{"value":"08:00","label":"08:00"},{"value":"08:30","label":"08:30"},{"value":"09:00","label":"09:00"},{"value":"09:30","label":"09:30"},{"value":"10:00","label":"10:00"},{"value":"10:30","label":"10:30"},{"value":"11:00","label":"11:00"},{"value":"11:30","label":"11:30"},{"value":"12:00","label":"12:00"},{"value":"12:30","label":"12:30"},{"value":"13:00","label":"13:00"},{"value":"13:30","label":"13:30"},{"value":"14:00","label":"14:00"},{"value":"14:30","label":"14:30"},{"value":"15:00","label":"15:00"},{"value":"15:30","label":"15:30"},{"value":"16:00","label":"16:00"},{"value":"16:30","label":"16:30"},{"value":"17:00","label":"17:00"},{"value":"17:30","label":"17:30"},{"value":"18:00","label":"18:00"},{"value":"18:30","label":"18:30"},{"value":"19:00","label":"19:00"},{"value":"19:30","label":"19:30"},{"value":"20:00","label":"20:00"},{"value":"20:30","label":"20:30"},{"value":"21:00","label":"21:00"},{"value":"21:30","label":"21:30"},{"value":"22:00","label":"22:00"},{"value":"22:30","label":"22:30"},{"value":"23:00","label":"23:00"},{"value":"23:30","label":"23:30"}]},
+  {"type":"select","key":"open_to","name":"Кухня закінчує о","extra":true,"options":[{"value":"06:00","label":"06:00"},{"value":"06:30","label":"06:30"},{"value":"07:00","label":"07:00"},{"value":"07:30","label":"07:30"},{"value":"08:00","label":"08:00"},{"value":"08:30","label":"08:30"},{"value":"09:00","label":"09:00"},{"value":"09:30","label":"09:30"},{"value":"10:00","label":"10:00"},{"value":"10:30","label":"10:30"},{"value":"11:00","label":"11:00"},{"value":"11:30","label":"11:30"},{"value":"12:00","label":"12:00"},{"value":"12:30","label":"12:30"},{"value":"13:00","label":"13:00"},{"value":"13:30","label":"13:30"},{"value":"14:00","label":"14:00"},{"value":"14:30","label":"14:30"},{"value":"15:00","label":"15:00"},{"value":"15:30","label":"15:30"},{"value":"16:00","label":"16:00"},{"value":"16:30","label":"16:30"},{"value":"17:00","label":"17:00"},{"value":"17:30","label":"17:30"},{"value":"18:00","label":"18:00"},{"value":"18:30","label":"18:30"},{"value":"19:00","label":"19:00"},{"value":"19:30","label":"19:30"},{"value":"20:00","label":"20:00"},{"value":"20:30","label":"20:30"},{"value":"21:00","label":"21:00"},{"value":"21:30","label":"21:30"},{"value":"22:00","label":"22:00"},{"value":"22:30","label":"22:30"},{"value":"23:00","label":"23:00"},{"value":"23:30","label":"23:30"}]},
+
+  {"type":"heading","key":"h_tube","name":"Тубус"},
+  {"type":"image","key":"tube_photo","name":"Фото тубуса","extra":true,
+   "hint":"Коли гість ставить галочку «W tubusie», фото страви міняється на це. Не завантажено — показується стандартне фото тубуса."},
+  {"type":"checkbox","key":"tube_swap","name":"Міняти фото страви на тубус","extra":true,
+   "hint":"Зніміть, щоб фото страви не мінялось зовсім. Доплата за тубус — у вкладці «Доставка та ціни»."},
+
+  {"type":"heading","key":"h_drinks","name":"Безкоштовні напої"},
+  {"type":"multi-collection","key":"free_drinks","name":"Що дарувати за замовчуванням","extra":true,
+   "from":"menu","whereExtra":{"key":"cat","value":"drinks"},
+   "hint":"Якщо в страві не позначено конкретних напоїв, гість обирає безкоштовний напій із цих. Краще позначати недорогі."},
+
+  {"type":"heading","key":"h_tech","name":"Технічне","adminOnly":true,"hint":"Бачить лише адмін платформи."},
+  {"type":"text","key":"title","name":"Назва картки","adminOnly":true}
+]'::jsonb
+          || coalesce((
+               select jsonb_agg(f order by i)
+               from jsonb_array_elements(c->'fields') with ordinality t1(f, i)
+               where not (f->>'key' = any (array[
+                 'h_day','dayoff','msg_pl','msg_ua','msg_en',
+                 'h_hours','open_from','open_to',
+                 'h_tube','tube_photo','tube_swap',
+                 'h_drinks','free_drinks','h_tech','title']))
+             ), '[]'::jsonb))
+
+        when c->>'key' = 'cats' then jsonb_set(c, '{fields}',
+          '[
+  {"type":"text","key":"title","name":"Назва розділу",
+   "hint":"Так вкладка підписана на сайті. Новий розділ зʼявиться в меню одразу після збереження."},
+  {"type":"text","key":"catkey","name":"Код розділу","extra":true,"adminOnly":true,
+   "hint":"Службовий: за ним страви привʼязані до розділу. Для нового розділу підставляється сам. У наявних НЕ міняти — страви відваляться."}
+]'::jsonb)
+
+        else c
+      end
+      order by idx
+    )
+    from jsonb_array_elements(s.config->'collections') with ordinality as t(c, idx)
+  )
+)
+where s.id = 3;
+
+-- Тексти: ті самі ключі, лише «zł» замість «zl»
+update public.sites
+set config = jsonb_set(config, '{texts}', '[
+  {"key":"phone_view","name":"Телефон — як показувати",
+   "hint":"Саме так номер побачить гість у контактах. Наприклад: +48 797 254 955"},
+  {"key":"phone","name":"Телефон — для дзвінка",
+   "hint":"Той самий номер, але суцільно і з кодом країни. На нього спрацює кнопка дзвінка. Наприклад: +48797254955"},
+  {"key":"addr","name":"Адреса",
+   "hint":"Показується в контактах і відкриває карти. Кома переносить на новий рядок. Наприклад: ul. Wolności 29, Jelenia Góra"},
+  {"key":"instagram","name":"Instagram",
+   "hint":"Можна вписати нік або повне посилання. Наприклад: @sushi_shark_jg"},
+  {"key":"min_order","name":"Мінімальне замовлення на доставку, zł",
+   "hint":"Саме число. Менше цієї суми кошик не дасть оформити доставку. Наприклад: 70"},
+  {"key":"delivery_time","name":"Скільки триває доставка",
+   "hint":"Напис на головній сторінці. Наприклад: ~60 min"},
+  {"key":"tube_price","name":"Доплата за тубус, zł",
+   "hint":"Саме число. Стільки додається до ціни, коли гість ставить галочку «W tubusie». Яким стравам доступний тубус — галочка «Можна в тубусі» в самій страві."}
+]'::jsonb, true)
+where id = 3;
+
+-- Вкладки: перша тепер чесно називається «Режим роботи і налаштування»
+update public.sites
+set config = jsonb_set(config, '{sections}', '[
+  {"name":"1. Режим роботи і налаштування",
+   "note":"Вихідний, години кухні, фото тубуса й безкоштовні напої — у картці нижче, кнопка «Редагувати». Під нею — контакти, які видно на сайті.",
+   "collections":["settings"],
+   "texts":["phone_view","phone","addr","instagram"]},
+  {"name":"2. Меню",
+   "note":"Усі страви сайту. Щоб змінити ціну, склад, фото чи додатки — «Редагувати» біля страви. Нова страва зʼявляється на сайті одразу після збереження.",
+   "collections":["menu","cats"]},
+  {"name":"3. Доставка та ціни",
+   "note":"Суми й підписи, які гість бачить у кошику та на головній.",
+   "texts":["min_order","delivery_time","tube_price"]}
+]'::jsonb, true)
+where id = 3;
+
+-- Тубус: тим 17 ролям, що мали його раніше (список був у коді), ставимо галочку
+update public.items
+set extra = extra || '{"tube":true}'::jsonb
+where site_id = 3 and collection = 'menu'
+  and extra->>'img' in ('p7','p13','p14','p18','p19','p20','p22','p23','p24',
+                        'p34','p35','p45','p61','p71','p72','p73','p74')
+  and extra->>'tube' is null;
+
+-- Режим роботи: щоб галочки показували те, що вже діє на сайті
+update public.items
+set extra = extra
+  || case when extra->>'tube_swap'   is null then '{"tube_swap":true}'::jsonb else '{}'::jsonb end
+  || case when extra->>'free_drinks' is null then jsonb_build_object('free_drinks', 'Coca-Cola Zero' || chr(10) || 'Fanta' || chr(10) || 'Sprite') else '{}'::jsonb end
+where site_id = 3 and collection = 'settings';

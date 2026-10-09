@@ -9,6 +9,7 @@ export type FieldDef = {
   // images — кілька фото в одному полі: кнопка «Додати фото», масив у extra
   // multi-collection — список галочок із іншої колекції (напр. «які напої пропонувати»);
   // вибране зберігається як назви, кожна з нового рядка
+  // heading — не поле, а заголовок блоку у формі (name — текст заголовка, hint — підрядок)
   type:
     | "text"
     | "textarea"
@@ -17,7 +18,11 @@ export type FieldDef = {
     | "images"
     | "select"
     | "select-collection"
-    | "multi-collection";
+    | "multi-collection"
+    | "heading";
+  // true — поле бачить лише власник платформи; клієнт його не бачить і не може зіпсувати.
+  // Значення при цьому не стирається: форма зберігає картку цілком.
+  adminOnly?: boolean;
   extra?: boolean; // true — поле зберігається в items.extra, а не в окремій колонці
   from?: string; // для select-collection і multi-collection: з якої колекції брати варіанти
   // для multi-collection: показати лише картки, у яких extra[key] === value
