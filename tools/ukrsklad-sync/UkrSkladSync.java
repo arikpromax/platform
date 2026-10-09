@@ -56,7 +56,7 @@ import java.util.Set;
 
 public class UkrSkladSync {
 
-    static final String VERSION = "2026-10-07";
+    static final String VERSION = "2026-10-09";
 
     /* ---------- налаштування з ukrsklad-sync.ini ---------- */
 
@@ -217,6 +217,8 @@ public class UkrSkladSync {
 
     /* ---------- база УкрСкладу ---------- */
 
+    static String lastDbUrl = "";
+
     static Connection openDb() throws Exception {
         String driver = cfg("database", "driver", "org.firebirdsql.jdbc.FBDriver");
         try {
@@ -224,12 +226,19 @@ public class UkrSkladSync {
         } catch (ClassNotFoundException e) {
             throw new IllegalStateException("немає драйвера Firebird (" + driver + ") — покладіть jar-файли Jaybird у теку lib");
         }
+        /* База УкрСкладу у WIN1251, тож і з'єднання відкриваємо у WIN1251: тоді
+           Firebird віддає назви як є, без перекодування, і помилки «Cannot
+           transliterate character between character sets» не буває (вона
+           з'являється, коли з'єднання в UTF8). У UTF-8 для сайту перетворює
+           вже сама Java. Кодування — і в адресі, і окремим параметром. */
+        String charset = cfg("database", "db_charset", "WIN1251");
         String url = "jdbc:firebirdsql:" + cfg("database", "host", "localhost") + "/"
-                + cfg("database", "db_port", "3050") + ":" + need("database", "db_path");
+                + cfg("database", "db_port", "3050") + ":" + need("database", "db_path") + "?encoding=" + charset;
         Properties p = new Properties();
         p.setProperty("user", cfg("database", "user", "SYSDBA"));
         p.setProperty("password", cfg("database", "password", ""));
-        p.setProperty("encoding", cfg("database", "db_charset", "WIN1251"));
+        p.setProperty("encoding", charset);
+        lastDbUrl = url;
         Connection c = DriverManager.getConnection(url, p);
         c.setAutoCommit(false);
         return c;
@@ -593,7 +602,7 @@ public class UkrSkladSync {
     static void checkAll() {
         try {
             Connection db = openDb();
-            log("База УкрСкладу: підключились");
+            log("База УкрСкладу: підключились (" + lastDbUrl + ")");
             Map<String, StockRow> stock = readStock(db);
             log("Залишки: прочитано " + stock.size() + " товарів");
             int n = 0;

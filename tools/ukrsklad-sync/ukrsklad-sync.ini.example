@@ -14,6 +14,8 @@ db_port = 3053
 db_path = C:/ProgramData/UkrSklad7S/db/SKLAD.TCB
 user = SYSDBA
 password =
+# Кодування бази УкрСкладу. З’єднання відкривається саме в ньому — тоді назви читаються
+# без помилки «Cannot transliterate character»; у UTF-8 для сайту перетворює сама програма. Не міняйте на UTF8.
 db_charset = WIN1251
 driver = org.firebirdsql.jdbc.FBDriver
 
