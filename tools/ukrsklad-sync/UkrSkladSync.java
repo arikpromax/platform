@@ -32,6 +32,10 @@ import java.io.Writer;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.channels.FileLock;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.Charset;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -39,6 +43,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.sql.Types;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -273,8 +278,14 @@ public class UkrSkladSync {
         try {
             ResultSet rs = ps.executeQuery();
             Set<String> cols = new HashSet<String>();
+            Set<String> raw = new HashSet<String>();   // колонки, які база віддає байтами (CHARACTER SET OCTETS)
             ResultSetMetaData md = rs.getMetaData();
-            for (int i = 1; i <= md.getColumnCount(); i++) cols.add(md.getColumnLabel(i).toUpperCase());
+            for (int i = 1; i <= md.getColumnCount(); i++) {
+                String label = md.getColumnLabel(i).toUpperCase();
+                cols.add(label);
+                int t = md.getColumnType(i);
+                if (t == Types.BINARY || t == Types.VARBINARY || t == Types.LONGVARBINARY) raw.add(label);
+            }
             for (String c : Arrays.asList("ID", "QTY", "PRICE")) {
                 if (!cols.contains(c)) throw new IllegalStateException("У stock.sql немає колонки " + c + " (є: " + cols + ")");
             }
@@ -282,9 +293,9 @@ public class UkrSkladSync {
                 StockRow r = new StockRow();
                 r.id = str(rs.getString("ID"));
                 if (r.id.isEmpty()) continue;
-                r.sku = cols.contains("SKU") ? str(rs.getString("SKU")) : "";
-                r.size = cols.contains("SIZE") ? str(rs.getString("SIZE")) : "";
-                r.name = cols.contains("NAME") ? str(rs.getString("NAME")) : "";
+                r.sku = text(rs, "SKU", cols, raw);
+                r.size = text(rs, "SIZE", cols, raw);
+                r.name = text(rs, "NAME", cols, raw);
                 r.qty = (int) Math.max(0, Math.floor(rs.getDouble("QTY") + 1e-9));
                 r.price = rs.getDouble("PRICE");
                 r.sale = cols.contains("SALE") ? rs.getDouble("SALE") : 0;
@@ -296,6 +307,31 @@ public class UkrSkladSync {
             db.rollback();   // лише читали — транзакцію просто закриваємо
         }
         return out;
+    }
+
+    /*
+     * Текст із бази. Якщо поле в базі збережене в іншому кодуванні, ніж WIN1251,
+     * Firebird не може його перекласти й падає з «Cannot transliterate character
+     * between character sets». Тоді в stock.sql поле віддають сирими байтами —
+     * CAST(... AS VARCHAR(1000) CHARACTER SET OCTETS) — а тут ми самі розпізнаємо,
+     * UTF-8 це чи WIN1251.
+     */
+    static String text(ResultSet rs, String col, Set<String> cols, Set<String> raw) throws SQLException {
+        if (!cols.contains(col)) return "";
+        if (!raw.contains(col)) return str(rs.getString(col));
+        byte[] b = rs.getBytes(col);
+        return b == null ? "" : decode(b).trim();
+    }
+
+    static String decode(byte[] b) {
+        try {
+            return StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(b)).toString();
+        } catch (CharacterCodingException notUtf8) {
+            return new String(b, Charset.forName("windows-1251"));
+        }
     }
 
     /* ---------- замовлення сайту → документи УкрСкладу ---------- */

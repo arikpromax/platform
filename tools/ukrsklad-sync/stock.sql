@@ -13,12 +13,18 @@
 -- Товари з нулем теж потрібні: так сайт знає, що їх уже немає.
 -- SKU, SIZE і NAME сайт бере лише для нового товару, щоб завести картку.
 --
+-- Якщо назва падає з «Cannot transliterate character between character sets» —
+-- поле в базі в іншому кодуванні. Тоді віддайте його сирими байтами, програма
+-- сама розпізнає UTF-8 чи WIN1251:
+--   CAST(t.NAME AS VARCHAR(1000) CHARACTER SET OCTETS) AS NAME
+-- Так само можна з SKU і SIZE.
+--
 -- Приклад (назви таблиць і полів — перевір):
 --
 -- SELECT t.NUM      AS ID,
 --        t.KOD      AS SKU,
 --        t.RAZMER   AS SIZE,
---        t.NAME     AS NAME,
+--        CAST(t.NAME AS VARCHAR(1000) CHARACTER SET OCTETS) AS NAME,
 --        z.KOLVO    AS QTY,
 --        t.CENA_R   AS PRICE,
 --        t.CENA_AKC AS SALE
