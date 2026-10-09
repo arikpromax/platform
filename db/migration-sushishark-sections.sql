@@ -892,3 +892,25 @@ where id = 3;
 update public.items
 set title = 'Вихідний і години кухні'
 where site_id = 3 and collection = 'settings';
+
+
+-- ---------- 18) Платні напій і соус — без галочок, віконцем після «+» ----------
+-- На сайті галочки «Z napojem» / «Z sosem» прибрано: коли гість тисне «+»,
+-- сайт сам пропонує напій чи соус за доплату (як вікно з додатками). Лише підказки.
+update public.sites s
+set config = jsonb_set(s.config, '{collections}', (
+  select jsonb_agg(
+    case when col->>'key' = 'menu' then jsonb_set(col, '{fields}', coalesce((
+        select jsonb_agg(
+          case f->>'key'
+            when 'drink_price' then f || '{"hint":"Впишіть суму — коли гість натисне «+» біля страви, сайт запропонує обрати напій за цю доплату. Від нього можна відмовитись. Порожньо — не пропонує."}'::jsonb
+            when 'sauce_price' then f || '{"hint":"Впишіть суму — коли гість натисне «+» біля страви, сайт запропонує обрати соус за цю доплату. Від нього можна відмовитись. Порожньо — не пропонує."}'::jsonb
+            else f
+          end order by i)
+        from jsonb_array_elements(col->'fields') with ordinality t1(f, i)
+      ), col->'fields'))
+    else col end
+    order by idx)
+  from jsonb_array_elements(s.config->'collections') with ordinality t(col, idx)
+))
+where s.id = 3;
