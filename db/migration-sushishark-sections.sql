@@ -780,3 +780,110 @@ set extra = extra
   || case when extra->>'tube_swap'   is null then '{"tube_swap":true}'::jsonb else '{}'::jsonb end
   || case when extra->>'free_drinks' is null then jsonb_build_object('free_drinks', 'Coca-Cola Zero' || chr(10) || 'Fanta' || chr(10) || 'Sprite') else '{}'::jsonb end
 where site_id = 3 and collection = 'settings';
+
+
+-- ---------- 17) Тубус і безкоштовні напої — окрема картка у вкладці «Меню» ----------
+-- Раніше фото тубуса й подарункові напої сиділи в картці «Режим роботи»,
+-- а доплата за тубус — у «Доставка та ціни». Тепер усе це в одній картці
+-- над стравами (колекція menuset). Значення переносяться як є.
+-- Можна запускати повторно.
+
+-- а) нова картка — лише якщо її ще нема
+insert into public.items (site_id, collection, title, text, price, image_url, extra, sort_order)
+select 3, 'menuset', 'Тубус і безкоштовні напої', '', '',
+       coalesce(st.extra->>'tube_photo', ''),
+       jsonb_build_object(
+         'tube_price',  coalesce((select value from public.texts where site_id = 3 and key = 'tube_price'), '7'),
+         'tube_swap',   coalesce(st.extra->'tube_swap', 'true'::jsonb),
+         'free_drinks', coalesce(st.extra->>'free_drinks', 'Coca-Cola Zero' || chr(10) || 'Fanta' || chr(10) || 'Sprite')),
+       0
+from (select 1) one
+left join lateral (
+  select extra from public.items
+  where site_id = 3 and collection = 'settings'
+  order by sort_order, id
+  limit 1
+) st on true
+where not exists (select 1 from public.items where site_id = 3 and collection = 'menuset');
+
+-- б) з картки «Режим роботи» ці значення прибираємо: тепер вони живуть у новій
+update public.items
+set extra = extra - 'tube_photo' - 'tube_swap' - 'free_drinks'
+where site_id = 3 and collection = 'settings'
+  and exists (select 1 from public.items where site_id = 3 and collection = 'menuset');
+
+-- в) конфіг: нова колекція, «Режим роботи» без тубуса й напоїв, нові підказки в страві
+update public.sites s
+set config = jsonb_set(s.config, '{collections}', (
+  select jsonb_agg(z.c order by z.idx)
+  from (
+    select
+      case
+        when col->>'key' = 'settings' then jsonb_set(col, '{fields}', coalesce((
+            select jsonb_agg(f order by i)
+            from jsonb_array_elements(col->'fields') with ordinality t1(f, i)
+            where not (f->>'key' = any (array['h_tube','tube_photo','tube_swap','h_drinks','free_drinks']))
+          ), '[]'::jsonb))
+        when col->>'key' = 'menu' then jsonb_set(col, '{fields}', coalesce((
+            select jsonb_agg(
+              case f->>'key'
+                when 'tube' then f || '{"hint":"У страви зʼявиться галочка «W tubusie». Доплата й фото тубуса — у картці «Тубус і безкоштовні напої» вгорі цієї вкладки."}'::jsonb
+                when 'drink_list' then f || '{"hint":"Діє і на платний напій, і на безкоштовні. Нічого не позначено: для платного — усі напої меню, для безкоштовних — ті, що позначені в картці «Тубус і безкоштовні напої» вгорі цієї вкладки."}'::jsonb
+                else f
+              end order by i)
+            from jsonb_array_elements(col->'fields') with ordinality t1(f, i)
+          ), col->'fields'))
+        else col
+      end as c,
+      idx
+    from jsonb_array_elements(s.config->'collections') with ordinality t(col, idx)
+    where col->>'key' <> 'menuset'
+    union all
+    select '{"key":"menuset","name":"Для всього меню","noAdd":true,"noDelete":true,"fields":[
+  {"type":"heading","key":"h_tube","name":"Тубус",
+   "hint":"Тубус — це туба-упаковка, у якій рол можна замовити за доплату. Галочку «W tubusie» гість бачить лише в тих стравах, де в картці страви стоїть «Можна в тубусі»."},
+  {"type":"text","key":"tube_price","name":"Доплата за тубус, zł","extra":true,
+   "hint":"Саме число. Стільки додається до ціни страви, коли гість ставить галочку «W tubusie». Наприклад: 7"},
+  {"type":"image","key":"image","name":"Фото тубуса",
+   "hint":"Коли гість ставить галочку, фото страви в меню міняється на це. Не завантажено — сайт покаже своє стандартне фото тубуса."},
+  {"type":"checkbox","key":"tube_swap","name":"Міняти фото страви на фото тубуса","extra":true,
+   "hint":"Зніміть галочку — фото страви лишиться своїм, зміниться тільки ціна."},
+
+  {"type":"heading","key":"h_free","name":"Безкоштовні напої",
+   "hint":"Стосується страв, у яких у блоці «Напої до страви» вибрано «Безкоштовних напоїв: 1» чи більше. Коли гість кладе таку страву в кошик, сайт просить обрати подарунковий напій."},
+  {"type":"multi-collection","key":"free_drinks","name":"З яких напоїв гість обирає подарунок","extra":true,
+   "from":"menu","whereExtra":{"key":"cat","value":"drinks"},
+   "hint":"Позначте напої, які можна дати безкоштовно. Якщо в самій страві позначено свої напої — для неї діє її список, а не цей. Нічого не позначено — Coca-Cola Zero, Fanta, Sprite."},
+
+  {"type":"heading","key":"h_tech","name":"Технічне","adminOnly":true,"hint":"Бачить лише адмін платформи."},
+  {"type":"text","key":"title","name":"Назва картки","adminOnly":true}
+]}'::jsonb, 1000
+  ) z
+))
+where s.id = 3;
+
+-- г) доплата за тубус більше не текст у «Доставка та ціни» — вона в новій картці
+update public.sites
+set config = jsonb_set(config, '{texts}', coalesce((
+  select jsonb_agg(t order by i)
+  from jsonb_array_elements(config->'texts') with ordinality x(t, i)
+  where t->>'key' <> 'tube_price'
+), '[]'::jsonb))
+where id = 3;
+
+-- ґ) вкладки. Номер адмінка ставить сама, тому в назвах його нема
+--    (раніше виходило «1. 1. Режим роботи…»)
+update public.sites
+set config = jsonb_set(config, '{sections}', '[
+  {"name":"Режим роботи та контакти",
+   "note":"Вихідний і години кухні — у картці «Режим роботи», кнопка «Редагувати». Нижче — телефон, адреса та Instagram, які видно на сайті.",
+   "collections":["settings"],
+   "texts":["phone_view","phone","addr","instagram"]},
+  {"name":"Меню",
+   "note":"Угорі — картка «Тубус і безкоштовні напої»: вона діє на все меню одразу. Нижче — усі страви: щоб змінити ціну, склад, фото чи додатки, натисніть «Редагувати» біля страви. Нова страва зʼявляється на сайті одразу після збереження.",
+   "collections":["menuset","menu","cats"]},
+  {"name":"Доставка",
+   "note":"Мінімальна сума замовлення й час доставки — їх гість бачить у кошику та на головній.",
+   "texts":["min_order","delivery_time"]}
+]'::jsonb, true)
+where id = 3;
