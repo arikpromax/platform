@@ -876,7 +876,7 @@ where id = 3;
 update public.sites
 set config = jsonb_set(config, '{sections}', '[
   {"name":"Режим роботи та контакти",
-   "note":"Вихідний і години кухні — у картці «Режим роботи», кнопка «Редагувати». Нижче — телефон, адреса та Instagram, які видно на сайті.",
+   "note":"Вихідний і години кухні — у картці «Вихідний і години кухні», кнопка «Редагувати». Нижче — телефон, адреса та Instagram, які видно на сайті.",
    "collections":["settings"],
    "texts":["phone_view","phone","addr","instagram"]},
   {"name":"Меню",
@@ -887,3 +887,8 @@ set config = jsonb_set(config, '{sections}', '[
    "texts":["min_order","delivery_time"]}
 ]'::jsonb, true)
 where id = 3;
+
+-- д) картка в першій вкладці: назва за змістом (було «Вимикач «Вихідний»»)
+update public.items
+set title = 'Вихідний і години кухні'
+where site_id = 3 and collection = 'settings';
