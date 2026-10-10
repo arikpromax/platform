@@ -237,7 +237,11 @@ begin
                'tag', '', 'weight', '', 'stock', true,
                'photos', '[]'::jsonb,
                'title_auto', true,
-               'photo_lookup', case when b.brand in ('Nike', 'Jordan') then 'pending' else 'none' end),
+               -- фото, назву, розділ і стать знайде бот у каталозі Nike: для Nike і Jordan,
+               -- а також коли бренду в назві немає, але артикул найківський (DD1391-100)
+               'photo_lookup', case when b.brand in ('Nike', 'Jordan')
+                                        or (b.brand = '' and split_part(public.sync_sku(r.sku), '__', 1) ~ '^[A-Z0-9]{6}-[0-9]{3}$')
+                                      then 'pending' else 'none' end),
              0
         from (select coalesce(nullif(r.brand, ''),
                 case when r.name ~* 'jordan' then 'Jordan'

@@ -959,11 +959,17 @@ const rpc = (name: string, args: Record<string, unknown>) =>
 
 // Фото з офіційного каталогу Nike за артикулом: колір гарантовано той самий.
 // Картинки лежать у squarishURL; розмір задається заміною /t_default/.
-// Разом із фото беремо офіційну назву моделі й колір — для нових карток.
-type NikeInfo = { urls: string[]; title: string; color: string };
-async function nikeInfo(sku: string): Promise<NikeInfo> {
-  const code = sku.split("__")[0].trim();
-  for (const [market, lang] of [["GB", "en-GB"], ["US", "en"], ["DE", "de"]]) {
+// Разом із фото беремо офіційну назву, колір, а ще що це за річ (взуття чи
+// одяг), для кого і чий бренд (Nike чи Jordan) — для нових карток.
+type NikeInfo = {
+  urls: string[]; title: string; subtitle: string; color: string;
+  type: string; genders: string[]; brand: string;
+};
+const NO_NIKE: NikeInfo = { urls: [], title: "", subtitle: "", color: "", type: "", genders: [], brand: "" };
+
+async function nikeOne(code: string): Promise<NikeInfo> {
+  if (!code) return NO_NIKE;
+  for (const [market, lang] of [["GB", "en-GB"], ["US", "en"], ["DE", "de"], ["PL", "pl"]]) {
     try {
       const r = await fetch(
         "https://api.nike.com/product_feed/threads/v2/?filter=marketplace(" + market + ")" +
@@ -972,23 +978,71 @@ async function nikeInfo(sku: string): Promise<NikeInfo> {
       );
       const j = await r.json();
       const obj = j?.objects?.[0];
-      const content = obj?.productInfo?.[0]?.productContent ?? {};
+      const pi = obj?.productInfo?.[0] ?? {};
+      const content = pi.productContent ?? {};
+      const mp = pi.merchProduct ?? {};
       const nodes = obj?.publishedContent?.nodes?.[0]?.nodes ?? [];
       const urls: string[] = [];
       for (const n of nodes) {
+        if (n?.subType && n.subType !== "image") continue; // кадри з відео не беремо
         const u = n?.properties?.squarishURL;
         if (typeof u === "string" && u.includes("/t_default/")) {
           const big = u.replace("/t_default/", "/t_PDP_1280_v1/");
           if (!urls.includes(big)) urls.push(big);
         }
-        if (urls.length >= 4) break;
+        if (urls.length >= 5) break;
       }
       if (urls.length) {
-        return { urls, title: String(content.title ?? ""), color: String(content.colorDescription ?? "") };
+        return {
+          urls,
+          title: String(content.title ?? ""),
+          subtitle: String(content.subtitle ?? ""),
+          color: String(content.colorDescription ?? ""),
+          type: String(mp.productType ?? ""),
+          genders: Array.isArray(mp.genders) ? mp.genders.map(String) : [],
+          brand: String(mp.brand ?? ""),
+        };
       }
     } catch { /* пробуємо інший ринок */ }
   }
-  return { urls: [], title: "", color: "" };
+  return NO_NIKE;
+}
+
+// Костюм — два артикули через «__». Фото й назву беремо з верху: у його
+// галереї модель у всьому комплекті, а в галереї штанів буває інша кофта.
+const BOTTOM = /trouser|pant|jogger|short|legging|bottom/i;
+async function nikeInfo(sku: string): Promise<NikeInfo> {
+  const parts = sku.split("__").map((x) => x.trim()).filter(Boolean);
+  if (parts.length < 2) return nikeOne(parts[0] ?? "");
+  const all: NikeInfo[] = [];
+  for (const p of parts) all.push(await nikeOne(p));
+  return all.find((i) => i.urls.length && !BOTTOM.test(i.subtitle)) ?? all.find((i) => i.urls.length) ?? NO_NIKE;
+}
+
+// Розділ каталогу з опису Nike: «Men's Shoe», «Men's Woven Jacket»… Беремо
+// підзаголовок (тип речі), а не назву моделі: «Tech Fleece Windrunner» — це худі.
+function nikeCat(info: NikeInfo, suit: boolean): string {
+  if (suit) return "kostiumy";
+  if (info.type === "FOOTWEAR") return "vzuttia";
+  const s = (info.subtitle || info.title).toLowerCase();
+  if (/sock/.test(s)) return "shkarpetky";
+  if (info.type === "APPAREL") {
+    if (/tracksuit|track suit/.test(s)) return "kostiumy";
+    if (/gilet/.test(s)) return "zhyletky";
+    if (/jacket|parka|anorak|coat|puffer/.test(s)) return "kurtky";
+    if (/trouser|pants|jogger|legging/.test(s)) return "shtany";
+    if (/\bshorts\b/.test(s)) return "shorty";
+    if (/hoodie|sweatshirt|crew|fleece|zip/.test(s)) return "kofty";
+    if (/t-shirt|\btee\b|\btop\b|shirt|polo|jersey/.test(s)) return "futbolky";
+  }
+  if (info.type === "EQUIPMENT") return "aksesuary";
+  return "";
+}
+function nikeGender(info: NikeInfo): string {
+  const g = info.genders.map((x) => x.toUpperCase());
+  const men = g.includes("MEN") || g.includes("BOYS");
+  const women = g.includes("WOMEN") || g.includes("GIRLS");
+  return men && !women ? "m" : women && !men ? "w" : "";
 }
 
 // Назва в стилі сайту: «Кросівки чоловічі Air Max 90 Anthracite» — бренд на
@@ -1012,23 +1066,30 @@ function niceTitle(info: NikeInfo, extra: Record<string, unknown>) {
 }
 
 // Новим карткам Nike і Jordan шукаємо фото — не більше 15 за раз, решту
-// підхопить наступна синхронізація. Знайшли — товар зʼявляється на сайті.
+// підхопить наступний обмін. Знайшли — товар зʼявляється на сайті з фото.
 async function findPhotos(site: number) {
   const todo: { id: number; extra: Record<string, unknown> }[] = await db(
     `items?site_id=eq.${site}&collection=eq.products&extra->>photo_lookup=eq.pending&select=id,extra&limit=15`,
   );
   let found = 0;
   for (const it of todo) {
-    const info = await nikeInfo(String(it.extra.sku ?? ""));
+    const sku = String(it.extra.sku ?? "");
+    const info = await nikeInfo(sku);
     const extra: Record<string, unknown> = { ...it.extra, photo_lookup: info.urls.length ? "done" : "none" };
     const patch: Record<string, unknown> = { extra };
     if (info.urls.length && !(Array.isArray(it.extra.photos) && it.extra.photos.length)) {
       extra.photos = info.urls;
       found++;
     }
-    // Назву з програми («Крос Найк АМ90 сір») міняємо на офіційну, поки її не правили в адмінці
-    if (it.extra.title_auto === true) {
-      const title = niceTitle(info, it.extra);
+    // Картку завела програма магазину: назву, розділ, стать і бренд вона
+    // вгадувала з назви в УкрСкладі — Nike знає точно. Поки картку не правили в адмінці.
+    if (it.extra.title_auto === true && info.urls.length) {
+      const cat = nikeCat(info, sku.includes("__"));
+      if (cat) extra.cat = cat;
+      const gender = nikeGender(info);
+      if (gender || info.genders.length) extra.gender = gender;
+      if (!String(extra.brand ?? "").trim() && info.brand) extra.brand = info.brand;
+      const title = niceTitle(info, extra);
       if (title) patch.title = title;
       extra.title_auto = false;
     }
@@ -1074,6 +1135,9 @@ async function onSync(kind: string, site: number, req: Request) {
   }
 
   if (kind === "orders") {
+    // програма магазину заходить сюди щопроходу — заодно шукаємо фото новим карткам,
+    // щоб вони не чекали, поки зміняться залишки
+    await findPhotos(site).catch((e) => console.error("photos", e));
     return json({ ok: true, orders: await rpc("orders_for_shop", { p_site: site }) });
   }
 
@@ -1369,7 +1433,7 @@ async function linesInfo(o: Order): Promise<Map<number, ItemInfo>> {
 
 // Позначка версії: після заливки функції одразу видно в ?check=, який саме
 // код у ній лежить. Міняти щоразу, коли віддаю файл власнику на деплой.
-const BUILD = "2026-10-10-1";
+const BUILD = "2026-10-10-2";
 
 async function check(site: number) {
   const npKey = await npKeyOf(site);
