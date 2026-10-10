@@ -87,6 +87,8 @@ export type SiteConfig = {
   stockSync?: string;
   // з якої дати замовлення йдуть у програму обліку (раніші там розібрали вручну)
   stockSyncSince?: string;
+  // адреса сайту, напр. https://justshopp.com.ua — з неї бот робить посилання на товари в Telegram
+  siteUrl?: string;
   // true — у адмінці зʼявляється вкладка «Бронювання» (готелі, номери)
   booking?: boolean;
   // true — вкладка «Підключення»: ключі Нової Пошти, оплати й обміну зі складом

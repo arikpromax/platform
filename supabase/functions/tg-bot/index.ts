@@ -1337,23 +1337,31 @@ async function setup(site: number) {
 
 // Що вже підключено. Жодних ключів і даних покупців — лише «так/ні» й адреса відправлення.
 // Довідка по речах замовлення: артикул, фото й посилання на товар.
-// Адреси знімків зберігаються повними, тож адресу самого сайту беремо
-// з них — окремо її ніде не записано.
+// Адреса сайту — з налаштувань сайту (config.siteUrl). Якщо її не вписали,
+// вгадуємо з адреси фото, що лежить у самого сайту (…/img/…); фото з Nike
+// чи зі сховища адмінки адреси сайту не підкажуть — тоді без посилання.
 type ItemInfo = { sku: string; photo: string; link: string };
+async function siteUrl(site: number): Promise<string> {
+  const [row] = await db(`sites?id=eq.${site}&select=config`);
+  const u = String(row?.config?.siteUrl ?? "").trim().replace(/\/+$/, "");
+  return /^https?:\/\/[^/]+/.test(u) ? u : "";
+}
 async function linesInfo(o: Order): Promise<Map<number, ItemInfo>> {
   const out = new Map<number, ItemInfo>();
   const ids = [...new Set((o.lines ?? []).map((l) => Number(l.item_id)).filter(Boolean))];
   if (!ids.length) return out;
-  const rows = await db(
-    `items?id=in.(${ids.join(",")})&site_id=eq.${o.site_id}&select=id,image_url,extra`,
-  );
+  const [rows, fixed] = await Promise.all([
+    db(`items?id=in.(${ids.join(",")})&site_id=eq.${o.site_id}&select=id,image_url,extra`),
+    siteUrl(o.site_id).catch(() => ""),
+  ]);
   for (const r of rows) {
     const photo = String(r.extra?.photos?.[0] ?? r.image_url ?? "");
-    const base = photo.startsWith("http") ? photo.split("/img/")[0] : "";
+    const guess = photo.startsWith("http") && photo.includes("/img/") ? photo.split("/img/")[0] : "";
+    const base = fixed || guess;
     out.set(Number(r.id), {
       sku: String(r.extra?.sku ?? ""),
       photo: photo.startsWith("http") ? photo : "",
-      link: base && base !== photo ? `${base}/tovar.html?id=p${r.id}` : "",
+      link: base ? `${base}/tovar.html?id=p${r.id}` : "",
     });
   }
   return out;
@@ -1361,7 +1369,7 @@ async function linesInfo(o: Order): Promise<Map<number, ItemInfo>> {
 
 // Позначка версії: після заливки функції одразу видно в ?check=, який саме
 // код у ній лежить. Міняти щоразу, коли віддаю файл власнику на деплой.
-const BUILD = "2026-10-05-1";
+const BUILD = "2026-10-10-1";
 
 async function check(site: number) {
   const npKey = await npKeyOf(site);

@@ -14,6 +14,13 @@ update public.items
  where site_id = 106
    and (extra::text like '%arikpromax.github.io/justshop/%' or coalesce(image_url, '') like '%arikpromax.github.io/justshop/%');
 
+-- Адреса сайту в налаштуваннях: з неї бот робить посилання на товари в Telegram,
+-- навіть якщо фото товару лежить не на сайті (з каталогу Nike чи завантажене в адмінці).
+update public.sites
+   set config = config || jsonb_build_object('siteUrl', 'https://justshopp.com.ua')
+ where id = 106;
+
 select count(*) filter (where extra::text like '%justshopp.com.ua/%')              as "карток з фото на домені",
-       count(*) filter (where extra::text like '%arikpromax.github.io/justshop/%') as "лишилось зі старою адресою"
+       count(*) filter (where extra::text like '%arikpromax.github.io/justshop/%') as "лишилось зі старою адресою",
+       (select config->>'siteUrl' from public.sites where id = 106)            as "адреса сайту для Telegram"
   from public.items where site_id = 106;
