@@ -456,12 +456,10 @@ public class UkrSkladSync {
         }
 
         boolean paid = Boolean.TRUE.equals(o.get("paid"));
-        int docId;
         PreparedStatement ps = db.prepareStatement(
                 "INSERT INTO " + head + " (FIRMA_ID, NU, DATE_DOK, CLIENT_ID, SKLAD_ID, DOC_USER_ID, "
                         + "CENA, CENA_PDV, CURR_CENA, CURR_CENA_PDV, PAID, IS_MOVE) "
-                        + "VALUES (?, ?, CURRENT_DATE, ?, ?, ?, 0, 0, 0, 0, ?, 1)",
-                new String[] {"NUM"});
+                        + "VALUES (?, ?, CURRENT_DATE, ?, ?, ?, 0, 0, 0, 0, ?, 1)");
         try {
             ps.setInt(1, firmaId);
             ps.setString(2, nu);
@@ -470,13 +468,16 @@ public class UkrSkladSync {
             ps.setInt(5, userId);
             ps.setInt(6, paid || isReturn ? 1 : 0);
             ps.executeUpdate();
-            ResultSet keys = ps.getGeneratedKeys();
-            if (!keys.next()) throw new SQLException("база не повернула номер нового документа");
-            docId = keys.getInt(1);
-            keys.close();
         } finally {
             ps.close();
         }
+        /* Номер нового документа (NUM) шукаємо за його NU — він наш і неповторний.
+           RETURNING / getGeneratedKeys у старих версіях Jaybird вимагають ще
+           бібліотеку antlr-runtime, а так працює з будь-якою. Ця ж транзакція
+           свій щойно вставлений рядок бачить. */
+        Integer found = findDoc(db, head, nu);
+        if (found == null) throw new SQLException("документ " + nu + " записався, але база не віддала його номер");
+        int docId = found;
 
         ps = db.prepareStatement(
                 "INSERT INTO " + lines + " (PID, TOVAR_ID, SKLAD_ID, TOV_KOLVO, "
