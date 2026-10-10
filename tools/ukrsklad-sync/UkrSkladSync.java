@@ -52,6 +52,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -61,7 +62,7 @@ import java.util.Set;
 
 public class UkrSkladSync {
 
-    static final String VERSION = "2026-10-10";
+    static final String VERSION = "2026-10-10b";
 
     /* ---------- налаштування з ukrsklad-sync.ini ---------- */
 
@@ -455,18 +456,21 @@ public class UkrSkladSync {
             return "ok";
         }
 
+        /* Поля в таблицях документів різні: у видаткової (VNAKL) є «Оплачено» й
+           «Списувати зі складу», у повернення (VZNAKL) — ні. Тому спершу дивимось,
+           які поля є в таблиці, і заповнюємо лише наявні. */
+        Set<String> hc = columns(db, head);
+        Set<String> lc = columns(db, lines);
         boolean paid = Boolean.TRUE.equals(o.get("paid"));
-        PreparedStatement ps = db.prepareStatement(
-                "INSERT INTO " + head + " (FIRMA_ID, NU, DATE_DOK, CLIENT_ID, SKLAD_ID, DOC_USER_ID, "
-                        + "CENA, CENA_PDV, CURR_CENA, CURR_CENA_PDV, PAID, IS_MOVE) "
-                        + "VALUES (?, ?, CURRENT_DATE, ?, ?, ?, 0, 0, 0, 0, ?, 1)");
+
+        Ins h = new Ins(head, hc);
+        h.need("FIRMA_ID", firmaId).need("NU", nu).sql("DATE_DOK", "CURRENT_DATE")
+                .need("CLIENT_ID", clientId).opt("SKLAD_ID", skladId).opt("DOC_USER_ID", userId)
+                .sql("CENA", "0").sql("CENA_PDV", "0").sql("CURR_CENA", "0").sql("CURR_CENA_PDV", "0")
+                .opt("PAID", paid || isReturn ? 1 : 0).sql("IS_MOVE", "1");
+        PreparedStatement ps = db.prepareStatement(h.text());
         try {
-            ps.setInt(1, firmaId);
-            ps.setString(2, nu);
-            ps.setInt(3, clientId);
-            ps.setInt(4, skladId);
-            ps.setInt(5, userId);
-            ps.setInt(6, paid || isReturn ? 1 : 0);
+            h.bind(ps);
             ps.executeUpdate();
         } finally {
             ps.close();
@@ -479,42 +483,46 @@ public class UkrSkladSync {
         if (found == null) throw new SQLException("документ " + nu + " записався, але база не віддала його номер");
         int docId = found;
 
-        ps = db.prepareStatement(
-                "INSERT INTO " + lines + " (PID, TOVAR_ID, SKLAD_ID, TOV_KOLVO, "
-                        + "TOV_CENA, TOV_CENA_PDV, CURR_TOV_CENA, CURR_TOV_CENA_PDV, TOV_SUMA, CURR_TOV_SUMA, IS_PDV) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)");
-        try {
-            for (int i = 0; i < ids.size(); i++) {
-                double price = money.get(i)[0];
-                double sum = Math.round(price * ids.get(i)[1] * 100) / 100.0;
-                ps.setInt(1, docId);
-                ps.setInt(2, ids.get(i)[0]);
-                ps.setInt(3, skladId);
-                ps.setDouble(4, ids.get(i)[1]);
-                ps.setDouble(5, price);
-                ps.setDouble(6, price);
-                ps.setDouble(7, price);
-                ps.setDouble(8, price);
-                ps.setDouble(9, sum);
-                ps.setDouble(10, sum);
-                ps.addBatch();
+        for (int i = 0; i < ids.size(); i++) {
+            double price = money.get(i)[0];
+            double sum = Math.round(price * ids.get(i)[1] * 100) / 100.0;
+            Ins l = new Ins(lines, lc);
+            l.need("PID", docId).need("TOVAR_ID", ids.get(i)[0]).opt("SKLAD_ID", skladId)
+                    .need("TOV_KOLVO", (double) ids.get(i)[1])
+                    .opt("TOV_CENA", price).opt("TOV_CENA_PDV", price)
+                    .opt("CURR_TOV_CENA", price).opt("CURR_TOV_CENA_PDV", price)
+                    .opt("TOV_SUMA", sum).opt("CURR_TOV_SUMA", sum).sql("IS_PDV", "1");
+            ps = db.prepareStatement(l.text());
+            try {
+                l.bind(ps);
+                ps.executeUpdate();
+            } finally {
+                ps.close();
             }
-            ps.executeBatch();
-        } finally {
-            ps.close();
         }
 
-        exec(db, "UPDATE " + lines + " SET "
-                + "TOV_NAME = (SELECT NAME FROM TOVAR_NAME WHERE NUM = " + lines + ".TOVAR_ID), "
-                + "TOV_ED = (SELECT ED_IZM FROM TOVAR_NAME WHERE NUM = " + lines + ".TOVAR_ID) "
-                + "WHERE PID = ?", docId);
-        exec(db, "UPDATE " + head + " SET "
-                + "CLIENT = (SELECT FIO FROM CLIENT WHERE NUM = " + head + ".CLIENT_ID), "
-                + "CENA = (SELECT SUM(TOV_SUMA) FROM " + lines + " WHERE PID = ?), "
-                + "CENA_PDV = (SELECT SUM(TOV_SUMA) FROM " + lines + " WHERE PID = ?), "
-                + "CURR_CENA = (SELECT SUM(CURR_TOV_SUMA) FROM " + lines + " WHERE PID = ?), "
-                + "CURR_CENA_PDV = (SELECT SUM(CURR_TOV_SUMA) FROM " + lines + " WHERE PID = ?) "
-                + "WHERE NUM = ?", docId, docId, docId, docId, docId);
+        // назви й одиниці — з довідника товарів, як радить документація УкрСкладу
+        List<String> set = new ArrayList<String>();
+        if (lc.contains("TOV_NAME")) set.add("TOV_NAME = (SELECT NAME FROM TOVAR_NAME WHERE NUM = " + lines + ".TOVAR_ID)");
+        if (lc.contains("TOV_ED")) set.add("TOV_ED = (SELECT ED_IZM FROM TOVAR_NAME WHERE NUM = " + lines + ".TOVAR_ID)");
+        if (!set.isEmpty()) exec(db, "UPDATE " + lines + " SET " + join(set) + " WHERE PID = ?", docId);
+
+        // ім'я клієнта й суми — у шапку
+        set.clear();
+        int sums = 0;
+        if (hc.contains("CLIENT")) set.add("CLIENT = (SELECT FIO FROM CLIENT WHERE NUM = " + head + ".CLIENT_ID)");
+        for (String[] p : new String[][] {{"CENA", "TOV_SUMA"}, {"CENA_PDV", "TOV_SUMA"},
+                {"CURR_CENA", "CURR_TOV_SUMA"}, {"CURR_CENA_PDV", "CURR_TOV_SUMA"}}) {
+            if (hc.contains(p[0]) && lc.contains(p[1])) {
+                set.add(p[0] + " = (SELECT SUM(" + p[1] + ") FROM " + lines + " WHERE PID = ?)");
+                sums++;
+            }
+        }
+        if (!set.isEmpty()) {
+            int[] args = new int[sums + 1];
+            Arrays.fill(args, docId);
+            exec(db, "UPDATE " + head + " SET " + join(set) + " WHERE NUM = ?", args);
+        }
         db.commit();
 
         // у цьому ж проході наступне замовлення на ту саму річ має бачити менший залишок
@@ -556,6 +564,90 @@ public class UkrSkladSync {
         } finally {
             ps.close();
         }
+    }
+
+    // Поля таблиці з довідника самої бази. Запам'ятовуємо, щоб не питати щоразу.
+    static final Map<String, Set<String>> tableCols = new HashMap<String, Set<String>>();
+
+    static Set<String> columns(Connection db, String table) throws SQLException {
+        Set<String> c = tableCols.get(table);
+        if (c != null) return c;
+        c = new HashSet<String>();
+        PreparedStatement ps = db.prepareStatement(
+                "SELECT TRIM(RDB$FIELD_NAME) FROM RDB$RELATION_FIELDS WHERE RDB$RELATION_NAME = ?");
+        try {
+            ps.setString(1, table.toUpperCase());
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) c.add(str(rs.getString(1)).toUpperCase());
+            rs.close();
+        } finally {
+            ps.close();
+        }
+        if (c.isEmpty()) throw new SQLException("у базі немає таблиці " + table);
+        tableCols.put(table, c);
+        return c;
+    }
+
+    // INSERT лише з тих полів, що є в таблиці. need — поле обов'язкове (немає — помилка),
+    // opt — значення в параметр, sql — значення як є (CURRENT_DATE, 0, 1)
+    static final class Ins {
+        final String table;
+        final Set<String> has;
+        final List<String> names = new ArrayList<String>();
+        final List<String> values = new ArrayList<String>();
+        final List<Object> params = new ArrayList<Object>();
+
+        Ins(String table, Set<String> has) {
+            this.table = table;
+            this.has = has;
+        }
+
+        Ins need(String col, Object v) throws SQLException {
+            if (!has.contains(col)) throw new SQLException("у таблиці " + table + " немає поля " + col);
+            return add(col, "?", v);
+        }
+
+        Ins opt(String col, Object v) {
+            if (!has.contains(col)) {
+                logOnce("col:" + table + "." + col, "  у " + table + " немає поля " + col + " — пропускаю його");
+                return this;
+            }
+            return add(col, "?", v);
+        }
+
+        Ins sql(String col, String expr) {
+            if (!has.contains(col)) {
+                logOnce("col:" + table + "." + col, "  у " + table + " немає поля " + col + " — пропускаю його");
+                return this;
+            }
+            return add(col, expr, null);
+        }
+
+        Ins add(String col, String expr, Object v) {
+            names.add(col);
+            values.add(expr);
+            if (expr.equals("?")) params.add(v);
+            return this;
+        }
+
+        String text() {
+            return "INSERT INTO " + table + " (" + join(names) + ") VALUES (" + join(values) + ")";
+        }
+
+        void bind(PreparedStatement ps) throws SQLException {
+            for (int i = 0; i < params.size(); i++) {
+                Object v = params.get(i);
+                if (v instanceof Integer) ps.setInt(i + 1, (Integer) v);
+                else if (v instanceof Double) ps.setDouble(i + 1, (Double) v);
+                else ps.setString(i + 1, String.valueOf(v));
+            }
+        }
+    }
+
+    static String join(List<String> parts) {
+        StringBuilder b = new StringBuilder();
+        for (String p : parts) b.append(b.length() == 0 ? "" : ", ").append(p);
+        return b.toString();
     }
 
     static void exec(Connection db, String sql, int... args) throws SQLException {
