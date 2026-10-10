@@ -61,7 +61,7 @@ import java.util.Set;
 
 public class UkrSkladSync {
 
-    static final String VERSION = "2026-10-09";
+    static final String VERSION = "2026-10-10";
 
     /* ---------- налаштування з ukrsklad-sync.ini ---------- */
 
