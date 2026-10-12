@@ -4,13 +4,15 @@ import { useEffect, useRef, useState } from "react";
 
 /*
   Панель обрізки фото: перетягування + масштаб.
-  Користувач ставить страву в квадратну рамку, а на «Готово» ми малюємо
-  результат у canvas 800×800 і віддаємо готовий JPEG-файл — сайт показує
-  його як є, без жодних додаткових налаштувань позиції.
+  Користувач ставить фото в рамку, а на «Готово» ми малюємо результат
+  у canvas і віддаємо готовий JPEG — сайт показує його як є.
+  Рамка за замовчуванням квадратна; поле може задати іншу форму
+  (aspect = ширина / висота, напр. 0.75 — вертикальне 3:4), і тоді
+  рамка й готове фото мають саме таку форму, як місце на сайті.
 */
 
-const OUT = 1600; // розмір готового квадратного фото, px
-const VIEW = 300; // розмір рамки на екрані, px
+const OUT = 1600; // довша сторона готового фото, px
+const VIEW = 300; // довша сторона рамки на екрані, px
 
 /* Фото з iPhone. Тип файлу буває порожній, тому дивимось і на розширення. */
 const isHeic = (f: File) => /hei[cf]/i.test(f.type) || /\.hei[cf]$/i.test(f.name);
@@ -69,12 +71,19 @@ export default function ImageCropper({
   src,
   onDone,
   onCancel,
+  aspect = 1,
 }: {
   file?: File; // нове фото з компʼютера
   src?: string; // або редагуємо вже завантажене (URL)
   onDone: (blob: Blob) => void;
   onCancel: () => void;
+  aspect?: number; // форма рамки: ширина / висота
 }) {
+  const a = aspect > 0 ? aspect : 1;
+  const VW = a >= 1 ? VIEW : Math.round(VIEW * a); // рамка на екрані
+  const VH = a >= 1 ? Math.round(VIEW / a) : VIEW;
+  const OW = a >= 1 ? OUT : Math.round(OUT * a); // готове фото
+  const OH = a >= 1 ? Math.round(OUT / a) : OUT;
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [err, setErr] = useState(""); // чому фото не стало в рамку
   const [wait, setWait] = useState(""); // що зараз робимо з файлом
@@ -108,8 +117,8 @@ export default function ImageCropper({
       }
       setErr("");
       setImg(im);
-      const cover = VIEW / Math.min(im.naturalWidth, im.naturalHeight); // фото заповнює рамку
-      const contain = VIEW / Math.max(im.naturalWidth, im.naturalHeight); // усе фото видно
+      const cover = Math.max(VW / im.naturalWidth, VH / im.naturalHeight); // фото заповнює рамку
+      const contain = Math.min(VW / im.naturalWidth, VH / im.naturalHeight); // усе фото видно
       setMinScale(contain * 0.4); // можна сильно віддаляти — фото стає маленьким із полями
       setMaxScale(cover * 4);
       setScale(cover * 1.15); // старт: трохи наближено, щоб одразу можна тягнути
@@ -148,7 +157,8 @@ export default function ImageCropper({
       dead = true;
       if (objUrl.current) URL.revokeObjectURL(objUrl.current);
     };
-  }, [file, src]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file, src, a]);
 
   const displaySrc = file ? objUrl.current : src || "";
 
@@ -163,8 +173,8 @@ export default function ImageCropper({
     const h = img.naturalHeight * s;
     // abs: якщо фото БІЛЬШЕ рамки — не даємо зʼявитись білим полям (cover);
     // якщо МЕНШЕ рамки — тримаємо фото всередині рамки (вільне розміщення з полями).
-    const maxX = Math.abs(w - VIEW) / 2;
-    const maxY = Math.abs(h - VIEW) / 2;
+    const maxX = Math.abs(w - VW) / 2;
+    const maxY = Math.abs(h - VH) / 2;
     return {
       x: Math.max(-maxX, Math.min(maxX, p.x)),
       y: Math.max(-maxY, Math.min(maxY, p.y)),
@@ -197,19 +207,19 @@ export default function ImageCropper({
   const finish = () => {
     if (!img) return;
     const canvas = document.createElement("canvas");
-    canvas.width = OUT;
-    canvas.height = OUT;
+    canvas.width = OW;
+    canvas.height = OH;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, OUT, OUT);
+    ctx.fillRect(0, 0, OW, OH);
     ctx.imageSmoothingQuality = "high"; // менше «милка» при зменшенні
     // те, що видно в рамці, збільшуємо до розміру готового фото
-    const k = OUT / VIEW;
+    const k = OW / VW;
     const drawW = shown.w * k;
     const drawH = shown.h * k;
-    const dx = (OUT - drawW) / 2 + pos.x * k;
-    const dy = (OUT - drawH) / 2 + pos.y * k;
+    const dx = (OW - drawW) / 2 + pos.x * k;
+    const dy = (OH - drawH) / 2 + pos.y * k;
     ctx.drawImage(img, dx, dy, drawW, drawH);
     canvas.toBlob(
       (blob) => {
@@ -233,7 +243,7 @@ export default function ImageCropper({
 
         <div
           className="crop-view"
-          style={{ width: VIEW, height: VIEW }}
+          style={{ width: VW, height: VH }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}

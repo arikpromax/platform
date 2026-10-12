@@ -695,6 +695,8 @@ export default function SiteAdmin({ site, isAdmin, onBack, onSignOut }: Props) {
             disabled={!canEdit}
           />
         )}
+        {/* сірий рядок-пояснення: де це на сайті і приклад */}
+        {d.hint && <p className="fhint">{d.hint}</p>}
       </div>
     );
   };

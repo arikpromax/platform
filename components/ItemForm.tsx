@@ -287,6 +287,7 @@ export default function ItemForm({
                 {uploading && <p className="note">Завантажую фото…</p>}
                 {cropField?.key === f.key && cropFile && (
                   <ImageCropper
+                    aspect={(cropField ?? f).aspect}
                     file={cropFile}
                     onCancel={() => { setCropFile(null); setCropField(null); }}
                     onDone={(blob) => {
@@ -360,6 +361,7 @@ export default function ItemForm({
 
                 {(cropFile || editSrc) && (
                   <ImageCropper
+                    aspect={(cropField ?? f).aspect}
                     file={cropFile ?? undefined}
                     src={editSrc ?? undefined}
                     onCancel={() => {
