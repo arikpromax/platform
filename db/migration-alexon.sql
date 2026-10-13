@@ -594,11 +594,12 @@ from s, (values
   ('hours', 'Monday – Friday
 8 a.m. – 6 p.m.'),
   ('email', 'homeservice@alexon.info'),
-  ('address', ''),
+  ('address', '17120 86 Ave NW
+Edmonton, AB T5T 0J2'),
   ('facebook', 'https://www.facebook.com/share/1EPT72c4Zw/'),
   ('instagram', ''),
   ('tiktok', ''),
-  ('google', ''),
+  ('google', 'https://www.google.com/maps/place/?q=place_id:ChIJ1fs41k0hoFMRNJAfr6FTTXo'),
   ('svc_h', 'Handyman
 Renovation
 Painting'),
@@ -609,7 +610,7 @@ Painting'),
   ('h_reviews', 'Reviews'),
   ('rev_rating', ''),
   ('rev_count', ''),
-  ('rev_write', ''),
+  ('rev_write', 'https://search.google.com/local/writereview?placeid=ChIJ1fs41k0hoFMRNJAfr6FTTXo'),
   ('h_about', 'About Alexon'),
   ('about_p1', 'A home services company in Edmonton. Handyman jobs, renovations and painting — from a single repair to a whole room.'),
   ('about_p2', 'Send a photo of the job by text — it’s the quickest way to get a price.'),
