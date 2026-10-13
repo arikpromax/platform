@@ -266,7 +266,7 @@ insert into public.sites (slug, name, paid_until, config) values (
     {
       "key": "email",
       "name": "Email",
-      "hint": "У підвалі. Порожньо — рядка немає."
+      "hint": "У підвалі й у меню Contact. Порожньо — його на сайті немає. Заявки з форми приходять на адресу, вписану в Google-скрипті, не сюди."
     },
     {
       "key": "address",
@@ -593,7 +593,7 @@ from s, (values
   ('area_note', 'Edmonton and nearby communities'),
   ('hours', 'Monday – Friday
 8 a.m. – 6 p.m.'),
-  ('email', ''),
+  ('email', 'homeservice@alexon.info'),
   ('address', ''),
   ('facebook', 'https://www.facebook.com/share/1EPT72c4Zw/'),
   ('instagram', ''),
@@ -620,7 +620,7 @@ Painting'),
   ('h_faq', 'Questions'),
   ('h_contact', 'Let us
 call you'),
-  ('contact_lead', 'Tell us what needs doing. It comes to Alexon as a text message, and we call you back.'),
+  ('contact_lead', 'Tell us what needs doing. The request comes straight to Alexon, and we call you back.'),
   ('h_area', 'Where we work')
 ) as v(key, value)
 on conflict (site_id, key) do nothing;
