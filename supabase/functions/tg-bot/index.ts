@@ -395,7 +395,7 @@ type Order = {
   ttn_error?: string;
   status?: string;
   pay_state?: string; // '' — оплата не на сайті; wait, paid, failed, refunded — карткою через LiqPay
-  pay_info?: { amount?: number; test?: boolean };
+  pay_info?: { amount?: number; test?: boolean; how?: string; invoiceId?: string };
   np_track?: string;
   np_arrived_at?: string | null;
   np_stay_note_at?: string | null;
@@ -1268,7 +1268,8 @@ async function payStart(id: number, back: string) {
     if (!inv?.pageUrl) return { ok: false, error: "mono" };
     if (o.pay_state !== "wait") await patchOrder(o.id, { pay_state: "wait" });
     await patchOrder(o.id, { pay_info: { how: "mono", invoiceId: inv.invoiceId, ref: tail } });
-    return { ok: true, redirect: inv.pageUrl };
+    // номер рахунку — сайту: за ним покупець зможе сам скасувати неоплачене
+    return { ok: true, redirect: inv.pageUrl, invoice: inv.invoiceId };
   }
 
   const { pub, priv } = await liqOf(o.site_id);
@@ -1296,6 +1297,33 @@ async function payStart(id: number, back: string) {
 async function payState(id: number, ref: string) {
   const [o] = await db(`orders?id=eq.${id}&ref=eq.${encodeURIComponent(ref)}&select=pay_state,status`);
   return o ? { ok: true, state: o.pay_state, status: o.status } : { ok: false };
+}
+
+// Покупець пішов зі сторінки банку, не заплативши, і хоче повернутись у кошик
+// (оплатити інакше чи щось змінити). Скасовуємо замовлення одразу, а не через
+// 10 хвилин: річ повертається в продаж. Право на це — номер рахунку monobank,
+// який знає лише браузер цього покупця. Спершу питаємо банк, чи гроші вже
+// не пройшли, і анулюємо рахунок, щоб за скасоване вже не можна було заплатити.
+async function payCancel(id: number, invoice: string) {
+  const [o]: Order[] = await db(`orders?id=eq.${id}&select=*`);
+  if (!o) return { ok: false, error: "order" };
+  if (o.customer?.payId !== "online") return { ok: false, error: "not online" };
+  if (!invoice || String(o.pay_info?.invoiceId ?? "") !== invoice) return { ok: false, error: "invoice" };
+  if (o.pay_state === "paid") return { ok: false, error: "paid" };
+  if (o.status !== "new") return { ok: true, status: o.status };
+  const token = await keyOf(o.site_id, "MONO_TOKEN");
+  if (token) {
+    const inv = await mono(token, "invoice/status?invoiceId=" + encodeURIComponent(invoice)).catch(() => null);
+    if (["success", "processing", "hold"].includes(String(inv?.status))) return { ok: false, error: "paid" };
+    await mono(token, "invoice/remove", { method: "POST", body: JSON.stringify({ invoiceId: invoice }) })
+      .catch((e) => console.error("mono remove", e));
+  }
+  const res = await rpc("order_status_apply", {
+    p_order: o.id, p_status: "cancelled", p_who: "покупець", p_note: "покупець скасував, не оплативши",
+  });
+  if (res?.ok === false) return { ok: false, error: String(res.error ?? "cancel") };
+  await patchOrder(o.id, { pay_state: "failed" });
+  return { ok: true, status: "cancelled" };
 }
 
 // LiqPay повідомляє про оплату сюди. Віримо лише підпису приватним ключем.
@@ -1446,7 +1474,7 @@ async function linesInfo(o: Order): Promise<Map<number, ItemInfo>> {
 
 // Позначка версії: після заливки функції одразу видно в ?check=, який саме
 // код у ній лежить. Міняти щоразу, коли віддаю файл власнику на деплой.
-const BUILD = "2026-10-18-1";
+const BUILD = "2026-10-18-2";
 
 async function check(site: number) {
   const npKey = await npKeyOf(site);
@@ -1499,6 +1527,10 @@ Deno.serve(async (req) => {
     if (payId) return json(await payStart(payId, url.searchParams.get("back") ?? ""), 200, true);
     const stateId = Number(url.searchParams.get("paystate"));
     if (stateId) return json(await payState(stateId, url.searchParams.get("ref") ?? ""), 200, true);
+    const cancelId = Number(url.searchParams.get("paycancel"));
+    if (cancelId && req.method === "POST") {
+      return json(await payCancel(cancelId, url.searchParams.get("inv") ?? ""), 200, true);
+    }
     const liqSite = Number(url.searchParams.get("liqpay"));
     if (liqSite && req.method === "POST") return json(await liqCallback(liqSite, req));
     const monoSite = Number(url.searchParams.get("mono"));
