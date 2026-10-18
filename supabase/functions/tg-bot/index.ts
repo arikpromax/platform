@@ -1228,6 +1228,11 @@ async function payStart(id: number, back: string) {
   if (how === "mono") {
     const token = await keyOf(o.site_id, "MONO_TOKEN");
     if (!token) return { ok: false, error: "no mono" };
+    // Рахунок живе стільки, скільки ще чекає замовлення: неоплачене база скасовує
+    // через 10 хвилин від оформлення й повертає річ у продаж. Довший рахунок
+    // дав би оплатити вже скасоване, коли річ могли купити інші.
+    const left = Math.floor(600 - (Date.now() - new Date(o.created_at).getTime()) / 1000);
+    if (left <= 0) return { ok: false, error: "cancelled" };
     const inv = await mono(token, "invoice/create", {
       method: "POST",
       body: JSON.stringify({
@@ -1239,17 +1244,25 @@ async function payStart(id: number, back: string) {
           /* Перелік речей потрібен фіскальному чеку: коли власник звʼяже
              свій кабінет із ПРРО, чек виписується з цих рядків. Без них
              банк не має з чого його зібрати. Суми — в копійках. */
-          basketOrder: (o.lines ?? []).map((l) => ({
-            name: String(l.title ?? "Товар").slice(0, 128),
-            qty: Number(l.qty) || 1,
-            sum: Math.round((Number(l.price) || 0) * (Number(l.qty) || 1) * 100),
-            unit: "шт",
-            code: String(l.item_id ?? ""),
-          })),
+          // З цього monobank будує фіскальний чек (пРРО Checkbox у кабінеті банку):
+          // sum — ціна ОДНІЄЇ штуки в копійках, total — за всі штуки рядка
+          // (так у документації: табуретка, 2 шт, sum 2100, total 4200)
+          basketOrder: (o.lines ?? []).map((l) => {
+            const qty = Number(l.qty) || 1;
+            const each = Math.round((Number(l.price) || 0) * 100);
+            return {
+              name: String(l.title ?? "Товар").slice(0, 128),
+              qty,
+              sum: each,
+              total: each * qty,
+              unit: "шт.",
+              code: String(l.item_id ?? ""),
+            };
+          }),
         },
         redirectUrl: result_url || undefined,
         webHookUrl: `${HOOK}?mono=${o.site_id}`,
-        validity: 900,
+        validity: Math.max(60, left),
       }),
     });
     if (!inv?.pageUrl) return { ok: false, error: "mono" };
@@ -1433,7 +1446,7 @@ async function linesInfo(o: Order): Promise<Map<number, ItemInfo>> {
 
 // Позначка версії: після заливки функції одразу видно в ?check=, який саме
 // код у ній лежить. Міняти щоразу, коли віддаю файл власнику на деплой.
-const BUILD = "2026-10-10-2";
+const BUILD = "2026-10-18-1";
 
 async function check(site: number) {
   const npKey = await npKeyOf(site);
