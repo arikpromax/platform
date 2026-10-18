@@ -1295,8 +1295,25 @@ async function payStart(id: number, back: string) {
 // Для сторінки, на яку покупець повертається з LiqPay. Потрібні і номер, і код
 // замовлення — так чужі замовлення не перебрати.
 async function payState(id: number, ref: string) {
-  const [o] = await db(`orders?id=eq.${id}&ref=eq.${encodeURIComponent(ref)}&select=pay_state,status`);
-  return o ? { ok: true, state: o.pay_state, status: o.status } : { ok: false };
+  const [o]: Order[] = await db(`orders?id=eq.${id}&ref=eq.${encodeURIComponent(ref)}&select=*`);
+  if (!o) return { ok: false };
+  /* Покупець повернувся з банку, а повідомлення від monobank ще не прийшло:
+     питаємо банк напряму, щоб не тримати людину на «Перевіряємо оплату…».
+     created — рахунок відкрили, але не платили (вийшли «Назад»). */
+  const invoice = String(o.pay_info?.invoiceId ?? "");
+  if (o.pay_state === "wait" && o.status === "new" && invoice) {
+    const token = await keyOf(o.site_id, "MONO_TOKEN");
+    const inv = token
+      ? await mono(token, "invoice/status?invoiceId=" + encodeURIComponent(invoice)).catch(() => null)
+      : null;
+    const st = String(inv?.status ?? "");
+    if (st === "created") return { ok: true, state: "unpaid", status: o.status };
+    if (st && st !== "processing" && st !== "hold") {
+      const r = await monoApply(o, invoice, inv);
+      return { ok: true, state: r === "amount" ? "failed" : r, status: o.status };
+    }
+  }
+  return { ok: true, state: o.pay_state, status: o.status };
 }
 
 // Покупець пішов зі сторінки банку, не заплативши, і хоче повернутись у кошик
@@ -1340,28 +1357,43 @@ async function monoCallback(site: number, req: Request) {
   if (!m || Number(m[1]) !== site) return { ok: false, error: "reference" };
   const [o]: Order[] = await db(`orders?id=eq.${Number(m[2])}&site_id=eq.${site}&select=*`);
   if (!o) return { ok: false, error: "order" };
+  const r = await monoApply(o, id, inv);
+  return r === "amount" ? { ok: false, error: "amount" } : { ok: true };
+}
+
+// Записати в замовлення те, що каже monobank про рахунок. Одне місце і для
+// повідомлення від банку, і для перевірки, коли покупець повернувся на сайт.
+// Повертає, що тепер з оплатою: paid, failed, refunded, amount (сума не та) чи wait.
+async function monoApply(o: Order, invoiceId: string, inv: any): Promise<string> {
   const paid = Math.round(Number(inv?.amount ?? 0)) / 100;
   const info = {
-    how: "mono", status: String(inv?.status ?? ""), invoiceId: id,
+    how: "mono", status: String(inv?.status ?? ""), invoiceId,
     amount: paid, currency: "UAH", card: inv?.paymentInfo?.maskedPan ?? "",
     test: false, at: new Date().toISOString(),
   };
   if (inv?.status === "success") {
     if (paid + 0.01 < Number(o.total)) {
       await patchOrder(o.id, { pay_state: "failed", pay_info: { ...info, error: "сума не збігається" } });
-      return { ok: false, error: "amount" };
+      return "amount";
     }
     await db(`orders?id=eq.${o.id}&pay_state=neq.paid`, {
       method: "PATCH",
       body: JSON.stringify({ pay_state: "paid", paid_at: info.at, pay_info: info }),
     });
-  } else if (["failure", "expired"].includes(String(inv?.status))) {
-    if (o.pay_state !== "paid") await patchOrder(o.id, { pay_state: "failed", pay_info: info });
-  } else if (String(inv?.status) === "reversed") {
-    await patchOrder(o.id, { pay_state: "refunded", pay_info: info });
-    await tell(site, `Оплату за замовлення ${esc(o.ref)} (${money(paid)}) повернено покупцеві.`);
+    return "paid";
   }
-  return { ok: true };
+  if (["failure", "expired"].includes(String(inv?.status))) {
+    if (o.pay_state !== "paid") await patchOrder(o.id, { pay_state: "failed", pay_info: info });
+    return o.pay_state === "paid" ? "paid" : "failed";
+  }
+  if (String(inv?.status) === "reversed") {
+    if (o.pay_state !== "refunded") {
+      await patchOrder(o.id, { pay_state: "refunded", pay_info: info });
+      await tell(o.site_id, `Оплату за замовлення ${esc(o.ref)} (${money(paid)}) повернено покупцеві.`);
+    }
+    return "refunded";
+  }
+  return "wait";
 }
 
 async function liqCallback(site: number, req: Request) {
@@ -1474,7 +1506,7 @@ async function linesInfo(o: Order): Promise<Map<number, ItemInfo>> {
 
 // Позначка версії: після заливки функції одразу видно в ?check=, який саме
 // код у ній лежить. Міняти щоразу, коли віддаю файл власнику на деплой.
-const BUILD = "2026-10-18-2";
+const BUILD = "2026-10-18-3";
 
 async function check(site: number) {
   const npKey = await npKeyOf(site);
