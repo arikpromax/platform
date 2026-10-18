@@ -839,6 +839,17 @@ insert into public.sites (slug, name, paid_until, config) values (
       "multiline": true
     },
     {
+      "key": "sol_admin_h",
+      "name": "Сайт + адмін-панель: заголовок",
+      "hint": "Блок зі знімком адмінки після карток. Порожньо — блоку немає. Напр.: Сайт + адмін-панель"
+    },
+    {
+      "key": "sol_admin_p",
+      "name": "Сайт + адмін-панель: текст",
+      "hint": "Абзац під заголовком.",
+      "multiline": true
+    },
+    {
       "key": "demo_kicker",
       "name": "Маленький напис угорі",
       "hint": "Бірюзовий рядок над великим заголовком."
@@ -1090,7 +1101,7 @@ insert into public.sites (slug, name, paid_until, config) values (
       ]
     },
     {
-      "name": "1. Перший екран",
+      "name": "Перший екран",
       "note": "Велике фото на всю ширину, під ним заголовок і кнопка.",
       "texts": [
         "hero_kicker",
@@ -1102,7 +1113,7 @@ insert into public.sites (slug, name, paid_until, config) values (
       ]
     },
     {
-      "name": "2. Знайомо?",
+      "name": "Знайомо?",
       "note": "Темний блок з ілюстрацією і картки під ним. Картку можна додати, прибрати чи перетягнути — сайт сам розкладе їх по дві в ряд.",
       "texts": [
         "pain_h",
@@ -1114,19 +1125,24 @@ insert into public.sites (slug, name, paid_until, config) values (
       ]
     },
     {
-      "name": "3. Що я роблю",
-      "note": "Сірий блок з ноутбуком і телефоном, під ним картки по три в ряд.",
+      "name": "Що я роблю",
+      "note": "Сірий блок з ноутбуком і телефоном, картки по три в ряд, а під ними блок «Сайт + адмін-панель» зі знімком адмінки.",
       "texts": [
         "sol_h",
         "sol_panel_h",
-        "sol_panel_p"
+        "sol_panel_p",
+        "sol_admin_h",
+        "sol_admin_p"
       ],
       "collections": [
         "features"
+      ],
+      "photos": [
+        "admin"
       ]
     },
     {
-      "name": "4. Банер «Демосайт»",
+      "name": "Банер «Демосайт»",
       "note": "Темна смуга на всю ширину з круглою кнопкою.",
       "texts": [
         "demo_kicker",
@@ -1135,7 +1151,7 @@ insert into public.sites (slug, name, paid_until, config) values (
       ]
     },
     {
-      "name": "5. Як я працюю",
+      "name": "Як я працюю",
       "note": "Заголовок, великі цифри, що «набігають», і вкладки з етапами.",
       "texts": [
         "proc_h",
@@ -1148,7 +1164,7 @@ insert into public.sites (slug, name, paid_until, config) values (
       ]
     },
     {
-      "name": "6. Кейси",
+      "name": "Кейси",
       "note": "Скриншот сайту в браузері й телефоні, біла картка з перемикачами. Кожен кейс — окрема картка.",
       "texts": [
         "cases_h",
@@ -1160,7 +1176,7 @@ insert into public.sites (slug, name, paid_until, config) values (
       ]
     },
     {
-      "name": "7. Чому я",
+      "name": "Чому я",
       "note": "Заголовок, рядок під ним і картки по три в ряд.",
       "texts": [
         "why_h",
@@ -1171,7 +1187,7 @@ insert into public.sites (slug, name, paid_until, config) values (
       ]
     },
     {
-      "name": "8. Вартість",
+      "name": "Вартість",
       "note": "Велика ціна, вкладки «що впливає на ціну» з ілюстрацією і білою карткою.",
       "texts": [
         "price_h",
@@ -1189,7 +1205,7 @@ insert into public.sites (slug, name, paid_until, config) values (
       ]
     },
     {
-      "name": "9. Заявка",
+      "name": "Заявка",
       "note": "Сірий блок унизу: текст ліворуч і форма праворуч. Заявки, як і раніше, приходять у вашу таблицю.",
       "texts": [
         "contact_kicker",
@@ -1246,14 +1262,19 @@ insert into public.sites (slug, name, paid_until, config) values (
 )
 on conflict (slug) do update set config = excluded.config, name = excluded.name;
 
--- ---------- картки: site_photos ----------
+-- ---------- фото на сайті: hero ----------
 with s as (select id from public.sites where slug = 'arawebsite')
 insert into public.items (site_id, collection, title, text, image_url, extra, sort_order)
-select s.id, v.collection, v.title, v.text, v.image_url, v.extra::jsonb, v.n
-from s, (values
-  ('site_photos', 'Фото першого екрана', '', 'https://arawebsite.com/hero.webp', '{"slot":"hero"}', 1)
-) as v(collection, title, text, image_url, extra, n)
-where not exists (select 1 from public.items i, s where i.site_id = s.id and i.collection = 'site_photos');
+select s.id, 'site_photos', 'Фото першого екрана', '', 'https://arawebsite.com/hero.webp', '{"slot":"hero"}'::jsonb, 1
+from s
+where not exists (select 1 from public.items i, s where i.site_id = s.id and i.collection = 'site_photos' and i.extra->>'slot' = 'hero');
+
+-- ---------- фото на сайті: admin ----------
+with s as (select id from public.sites where slug = 'arawebsite')
+insert into public.items (site_id, collection, title, text, image_url, extra, sort_order)
+select s.id, 'site_photos', 'Фото адмін-панелі', '', 'https://arawebsite.com/admin-panel.jpg', '{"slot":"admin"}'::jsonb, 2
+from s
+where not exists (select 1 from public.items i, s where i.site_id = s.id and i.collection = 'site_photos' and i.extra->>'slot' = 'admin');
 
 -- ---------- картки: pains ----------
 with s as (select id from public.sites where slug = 'arawebsite')
@@ -1381,6 +1402,8 @@ from s, (values
   ('sol_h', 'Що я роблю'),
   ('sol_panel_h', 'Сайт, який працює на довіру і на заявки'),
   ('sol_panel_p', 'Кожен елемент сайту має одну мету — перетворити відвідувача на клієнта.'),
+  ('sol_admin_h', 'Сайт + адмін-панель'),
+  ('sol_admin_p', 'До кожного сайту — власна адмін-панель, яку засновник розробив з нуля. Тексти, ціни, фото й картки міняєте самі, без програміста: вкладки повторюють блоки вашого сайту, а під кожним полем є підказка.'),
   ('demo_kicker', 'Спершу подивіться — потім вирішуйте'),
   ('demo_h', 'Демосайт — безкоштовно'),
   ('demo_sub', 'Показую, як виглядатиме ваш сайт, до будь-якої оплати й без зобов''язань'),
