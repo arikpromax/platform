@@ -13,7 +13,7 @@ import { getSupabase, type Order, type OrderStatus, type Site } from "@/lib/supa
    =========================================================== */
 
 type Notice = { kind: "ok" | "err"; text: string } | null;
-type Filter = "all" | OrderStatus;
+type Filter = "all" | OrderStatus | "unpaid";
 
 const STATUS: Record<OrderStatus, string> = {
   new: "Нове",
@@ -49,6 +49,20 @@ const payText = (o: Order) => {
   }
   if (c["payId"] === "cod") return `Накладений платіж — ${money(Number(o.total))} при отриманні`;
   return String(c["pay"] ?? "");
+};
+
+/* Оплата карткою, яку покупець не завершив: перейшов на сторінку банку
+   й повернувся чи закрив її. Це ще не замовлення — у Telegram і в склад
+   воно не йде, а за 10 хвилин база сама скасує його й поверне товар у
+   продаж. Тому з «Новими» й «Скасованими» не змішуємо — окремо. */
+const unpaid = (o: Order) =>
+  (o.customer ?? {})["payId"] === "online" && (o.pay_state === "wait" || o.pay_state === "failed");
+
+// До котрої години чекаємо оплату (база скасовує через 10 хвилин після оформлення)
+const payUntil = (o: Order) => {
+  const d = new Date(new Date(o.created_at).getTime() + 10 * 60 * 1000);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}`;
 };
 
 const track = (no: string) => "https://novaposhta.ua/tracking/?cargo_number=" + encodeURIComponent(no);
@@ -151,15 +165,23 @@ export default function OrdersAdmin({ site, canEdit }: { site: Site; canEdit: bo
   };
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = { all: orders.length, new: 0, shipped: 0, done: 0, cancelled: 0, returned: 0 };
+    const c: Record<string, number> = { all: 0, new: 0, shipped: 0, done: 0, cancelled: 0, returned: 0, unpaid: 0 };
     orders.forEach((o) => {
+      if (unpaid(o)) {
+        c.unpaid += 1;
+        return;
+      }
+      c.all += 1;
       c[o.status] += 1;
     });
     return c;
   }, [orders]);
 
   const list = useMemo(
-    () => (filter === "all" ? orders : orders.filter((o) => o.status === filter)),
+    () =>
+      filter === "unpaid"
+        ? orders.filter(unpaid)
+        : orders.filter((o) => !unpaid(o) && (filter === "all" || o.status === filter)),
     [orders, filter],
   );
 
@@ -207,6 +229,22 @@ export default function OrdersAdmin({ site, canEdit }: { site: Site; canEdit: bo
     const c = o.customer ?? {};
     const who = [String(c["name"] ?? ""), String(c["phone"] ?? "")].filter(Boolean).join(" · ");
     const mark = syncMark(site, o);
+    const wait = unpaid(o);
+    const pill = wait
+      ? o.status === "new"
+        ? { text: "Чекає оплати", cls: " pill--warn" }
+        : { text: "Не оплатили", cls: " pill--off" }
+      : {
+          text: STATUS[o.status],
+          cls:
+            o.status === "new"
+              ? ""
+              : o.status === "shipped"
+                ? " pill--warn"
+                : o.status === "done"
+                  ? " pill--ok"
+                  : " pill--off",
+        };
     return (
       <div key={o.id}>
         <div className="row">
@@ -222,20 +260,7 @@ export default function OrdersAdmin({ site, canEdit }: { site: Site; canEdit: bo
             </span>
           </div>
           <div className="row__actions">
-            <span
-              className={
-                "pill" +
-                (o.status === "new"
-                  ? ""
-                  : o.status === "shipped"
-                    ? " pill--warn"
-                    : o.status === "done"
-                      ? " pill--ok"
-                      : " pill--off")
-              }
-            >
-              {STATUS[o.status]}
-            </span>
+            <span className={"pill" + pill.cls}>{pill.text}</span>
             {mark && (
               <span className={"pill" + mark.cls} title={mark.title}>
                 {mark.text}
@@ -301,58 +326,81 @@ export default function OrdersAdmin({ site, canEdit }: { site: Site; canEdit: bo
               )}
             </div>
 
-            <div className="row__actions">
-              {o.status === "new" && (
-                <button
-                  className="btn btn--ghost btn--sm"
-                  disabled={busy || !canEdit}
-                  onClick={() => setStatus(o, "shipped")}
-                >
-                  Відправлено
-                </button>
-              )}
-              {(o.status === "new" || o.status === "shipped") && (
-                <button
-                  className="btn btn--primary btn--sm"
-                  disabled={busy || !canEdit}
-                  onClick={() => setStatus(o, "done")}
-                >
-                  Виконане
-                </button>
-              )}
-              {o.status === "new" && (
-                <button
-                  className="btn btn--danger btn--sm"
-                  disabled={busy || !canEdit}
-                  onClick={() => setStatus(o, "cancelled")}
-                >
-                  Скасувати
-                </button>
-              )}
-              {(o.status === "shipped" || o.status === "done") && (
-                <button
-                  className="btn btn--danger btn--sm"
-                  disabled={busy || !canEdit}
-                  onClick={() => setStatus(o, "returned")}
-                >
-                  Повернення
-                </button>
-              )}
-              {(o.status === "cancelled" || o.status === "returned") && (
-                <button
-                  className="btn btn--ghost btn--sm"
-                  disabled={busy || !canEdit}
-                  onClick={() => setStatus(o, "new")}
-                >
-                  Поновити
-                </button>
-              )}
-            </div>
-            <p className="note">
-              Скасування й повернення самі кладуть товар назад на склад, поновлення — знову
-              знімає. Гроші за оплату карткою скасування не повертає — це робиться в кабінеті
-              банку, через який приймаєте оплату.
-            </p>
+            {wait ? (
+              <>
+                <p className="note">
+                  {o.status === "new"
+                    ? `Покупець перейшов до оплати карткою, але ще не оплатив. Робити нічого не треба: оплатить — замовлення стане «Новим» і прийде в Telegram; ні — о ${payUntil(o)} скасується само, а товар повернеться в продаж.`
+                    : "Покупець так і не оплатив — замовлення скасувалося само, товар повернувся в продаж. Робити нічого не треба."}
+                </p>
+                {o.status === "new" && (
+                  <div className="row__actions">
+                    <button
+                      className="btn btn--danger btn--sm"
+                      disabled={busy || !canEdit}
+                      onClick={() => setStatus(o, "cancelled")}
+                    >
+                      Скасувати зараз
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="row__actions">
+                  {o.status === "new" && (
+                    <button
+                      className="btn btn--ghost btn--sm"
+                      disabled={busy || !canEdit}
+                      onClick={() => setStatus(o, "shipped")}
+                    >
+                      Відправлено
+                    </button>
+                  )}
+                  {(o.status === "new" || o.status === "shipped") && (
+                    <button
+                      className="btn btn--primary btn--sm"
+                      disabled={busy || !canEdit}
+                      onClick={() => setStatus(o, "done")}
+                    >
+                      Виконане
+                    </button>
+                  )}
+                  {o.status === "new" && (
+                    <button
+                      className="btn btn--danger btn--sm"
+                      disabled={busy || !canEdit}
+                      onClick={() => setStatus(o, "cancelled")}
+                    >
+                      Скасувати
+                    </button>
+                  )}
+                  {(o.status === "shipped" || o.status === "done") && (
+                    <button
+                      className="btn btn--danger btn--sm"
+                      disabled={busy || !canEdit}
+                      onClick={() => setStatus(o, "returned")}
+                    >
+                      Повернення
+                    </button>
+                  )}
+                  {(o.status === "cancelled" || o.status === "returned") && (
+                    <button
+                      className="btn btn--ghost btn--sm"
+                      disabled={busy || !canEdit}
+                      onClick={() => setStatus(o, "new")}
+                    >
+                      Поновити
+                    </button>
+                  )}
+                </div>
+                <p className="note">
+                  Скасування й повернення самі кладуть товар назад на склад, поновлення — знову
+                  знімає. Гроші за оплату карткою скасування не повертає — це робиться в кабінеті
+                  банку, через який приймаєте оплату.
+                </p>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -364,7 +412,8 @@ export default function OrdersAdmin({ site, canEdit }: { site: Site; canEdit: bo
       <h2>Замовлення</h2>
       <p className="note">
         Замовлення з сайту. Товар списується зі складу вже при оформленні, тому скасовувати
-        потрібно саме тут — тоді він повернеться в продаж.
+        потрібно саме тут — тоді він повернеться в продаж. Оплата карткою, яку покупець не
+        завершив, лежить окремо в «Не оплачені»: таке скасовується саме, чіпати не треба.
       </p>
 
       <div className="groups__row">
@@ -375,6 +424,7 @@ export default function OrdersAdmin({ site, canEdit }: { site: Site; canEdit: bo
           ["done", "Виконані"],
           ["cancelled", "Скасовані"],
           ["returned", "Повернення"],
+          ...(counts.unpaid || filter === "unpaid" ? [["unpaid", "Не оплачені"]] : []),
         ] as [Filter, string][]).map(([k, label]) => (
           <button
             key={k}
