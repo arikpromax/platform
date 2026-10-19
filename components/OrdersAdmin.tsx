@@ -58,6 +58,12 @@ const payText = (o: Order) => {
 const unpaid = (o: Order) =>
   (o.customer ?? {})["payId"] === "online" && (o.pay_state === "wait" || o.pay_state === "failed");
 
+/* Що забере «Очистити історію» — те саме, що видаляє база (orders_clear):
+   лише скасовані. Без оплаченого вже після скасування (гроші ще треба
+   повернути) і без того, чиє повернення УкрСклад ще не оформив. */
+const clearable = (o: Order) =>
+  o.status === "cancelled" && o.pay_state !== "paid" && (!o.synced_at || o.sync_status === o.status);
+
 // До котрої години чекаємо оплату (база скасовує через 10 хвилин після оформлення)
 const payUntil = (o: Order) => {
   const d = new Date(new Date(o.created_at).getTime() + 10 * 60 * 1000);
@@ -215,6 +221,45 @@ export default function OrdersAdmin({ site, canEdit }: { site: Site; canEdit: bo
         kind: "ok",
         text: back ? "Готово ✔ Товар повернувся на склад." : "Статус змінено ✔",
       });
+      try {
+        apply(await fetchOrders());
+      } catch (e) {
+        failed(e);
+      }
+    }
+    setBusy(false);
+  };
+
+  const toClear = orders.filter(clearable).length;
+
+  const clearHistory = async () => {
+    if (!canEdit || !toClear) return;
+    if (
+      !window.confirm(
+        `Видалити ${toClear} скасованих замовлень назавжди? ` +
+          "Нові, відправлені, виконані й повернення лишаться. Повернути видалене не вийде.",
+      )
+    )
+      return;
+    setBusy(true);
+    setNotice(null);
+    const { data, error } = await supabase.rpc("orders_clear", { p_site: site.id });
+    const res = (data ?? {}) as { ok?: boolean; error?: string; deleted?: number };
+    if (error)
+      setNotice({
+        kind: "err",
+        text: /orders_clear/.test(error.message)
+          ? "Спершу виконайте db/orders-clear.sql у Supabase → SQL Editor."
+          : "Не вдалося: " + error.message,
+      });
+    else if (!res.ok)
+      setNotice({
+        kind: "err",
+        text: res.error === "access" ? "Немає прав або закінчилась підписка." : "Не вдалося очистити.",
+      });
+    else {
+      setNotice({ kind: "ok", text: `Готово ✔ Прибрано замовлень: ${res.deleted ?? 0}.` });
+      if (filter === "cancelled" || filter === "unpaid") setFilter("all");
       try {
         apply(await fetchOrders());
       } catch (e) {
@@ -414,6 +459,7 @@ export default function OrdersAdmin({ site, canEdit }: { site: Site; canEdit: bo
         Замовлення з сайту. Товар списується зі складу вже при оформленні, тому скасовувати
         потрібно саме тут — тоді він повернеться в продаж. Оплата карткою, яку покупець не
         завершив, лежить окремо в «Не оплачені»: таке скасовується саме, чіпати не треба.
+        «Очистити історію» прибирає скасовані й неоплачені — продажі лишаються.
       </p>
 
       <div className="groups__row">
@@ -441,6 +487,16 @@ export default function OrdersAdmin({ site, canEdit }: { site: Site; canEdit: bo
         >
           Оновити
         </button>
+        {canEdit && toClear > 0 && (
+          <button
+            className="btn btn--ghost btn--sm"
+            disabled={loading || busy}
+            onClick={clearHistory}
+            title="Видаляє скасовані й неоплачені замовлення. Справжні продажі лишаються."
+          >
+            Очистити історію
+          </button>
+        )}
       </div>
 
       {notice && <div className={`status status--${notice.kind}`}>{notice.text}</div>}
