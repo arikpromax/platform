@@ -62,7 +62,7 @@ import java.util.Set;
 
 public class UkrSkladSync {
 
-    static final String VERSION = "2026-10-10b";
+    static final String VERSION = "2026-10-20";
 
     /* ---------- налаштування з ukrsklad-sync.ini ---------- */
 
@@ -111,8 +111,8 @@ public class UkrSkladSync {
     // Значення, які читаємо один раз при старті
     static String siteUrl, siteKey, siteId;
     static int firmaId, skladId, clientId, userId;
-    static boolean dry;
-    static String saleHead, saleLines, retHead, retLines;
+    static boolean dry, moveStock;
+    static String saleHead, saleLines, retHead, retLines, zalTable;
 
     static void loadSettings() {
         siteUrl = need("site", "url");
@@ -123,6 +123,9 @@ public class UkrSkladSync {
         clientId = needInt("ukrsklad", "client_id");
         userId = needInt("ukrsklad", "doc_user_id");
         dry = "true".equalsIgnoreCase(cfg("mode", "dry", "false"));
+        // залишок разом із документом (УкрСклад сам міняє його лише при «Зберегти» у вікні)
+        moveStock = !"false".equalsIgnoreCase(cfg("documents", "move_stock", "true"));
+        zalTable = cfg("documents", "stock_table", "TOVAR_ZAL");
         saleHead = cfg("documents", "sale_header", "VNAKL");
         saleLines = cfg("documents", "sale_lines", "VNAKL_");
         retHead = cfg("documents", "return_header", "VZNAKL");
@@ -523,14 +526,27 @@ public class UkrSkladSync {
             Arrays.fill(args, docId);
             exec(db, "UPDATE " + head + " SET " + join(set) + " WHERE NUM = ?", args);
         }
+
+        /* Залишок. Тригерів у базі УкрСкладу немає: TOVAR_ZAL міняє сама програма,
+           коли документ зберігають кнопкою «Зберегти» (Валерій, 20.10.2026). Тож
+           рухаємо його тут, в одній транзакції з документом: продаж — мінус,
+           повернення — плюс. Документ і залишок записуються разом або жоден. */
+        if (moveStock) {
+            for (int[] t : ids) {
+                int n = exec(db, "UPDATE " + zalTable + " SET KOLVO = KOLVO " + (isReturn ? "+" : "-")
+                        + " ? WHERE TOVAR_ID = ? AND SKLAD_ID = ?", t[1], t[0], skladId);
+                if (n == 0) {
+                    log("  увага: товару ID " + t[0] + " немає в залишках складу " + skladId
+                            + " — документ створено, кількість змініть в УкрСкладі вручну");
+                }
+            }
+        }
         db.commit();
 
-        // у цьому ж проході наступне замовлення на ту саму річ має бачити менший залишок
-        if (!isReturn) {
-            for (int[] t : ids) {
-                StockRow r = stock.get(String.valueOf(t[0]));
-                if (r != null) r.qty = Math.max(0, r.qty - t[1]);
-            }
+        // у цьому ж проході наступне замовлення на ту саму річ має бачити новий залишок
+        for (int[] t : ids) {
+            StockRow r = stock.get(String.valueOf(t[0]));
+            if (r != null) r.qty = isReturn ? r.qty + t[1] : Math.max(0, r.qty - t[1]);
         }
         log("  Створено " + what + ", документ № " + docId);
         return "ok";
@@ -650,11 +666,12 @@ public class UkrSkladSync {
         return b.toString();
     }
 
-    static void exec(Connection db, String sql, int... args) throws SQLException {
+    // повертає, скільки рядків змінено
+    static int exec(Connection db, String sql, int... args) throws SQLException {
         PreparedStatement ps = db.prepareStatement(sql);
         try {
             for (int i = 0; i < args.length; i++) ps.setInt(i + 1, args[i]);
-            ps.executeUpdate();
+            return ps.executeUpdate();
         } finally {
             ps.close();
         }
