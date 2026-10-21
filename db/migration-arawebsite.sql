@@ -1358,7 +1358,7 @@ with s as (select id from public.sites where slug = 'arawebsite')
 insert into public.items (site_id, collection, title, text, image_url, extra, sort_order)
 select s.id, v.collection, v.title, v.text, v.image_url, v.extra::jsonb, v.n
 from s, (values
-  ('screens', 'Fish Family', '', 'https://arawebsite.com/screens/fishfamily-d.jpg', '{"url_label":"fishfamily","image_tablet":"https://arawebsite.com/screens/fishfamily-t.jpg","image_mobile":"https://arawebsite.com/screens/fishfamily-m.jpg"}', 1)
+  ('screens', 'Сайт на екранах', '', '', '{"url_label":"","image_tablet":"","image_mobile":""}', 1)
 ) as v(collection, title, text, image_url, extra, n)
 where not exists (select 1 from public.items i, s where i.site_id = s.id and i.collection = 'screens');
 
