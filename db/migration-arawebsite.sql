@@ -269,6 +269,50 @@ insert into public.sites (slug, name, paid_until, config) values (
       ]
     },
     {
+      "key": "screens",
+      "name": "Сайт на екранах",
+      "noAdd": true,
+      "noDelete": true,
+      "fields": [
+        {
+          "type": "text",
+          "key": "title",
+          "name": "Чий це сайт",
+          "hint": "Для вас, на сайті не видно. Напр.: Fish Family"
+        },
+        {
+          "type": "text",
+          "key": "url_label",
+          "name": "Адреса у віконці браузера",
+          "extra": true,
+          "hint": "Сірий рядок над знімком компʼютера. Напр.: fishfamily"
+        },
+        {
+          "type": "image",
+          "key": "image",
+          "name": "Знімок на компʼютері",
+          "aspect": 1.6,
+          "hint": "Перший екран сайту, горизонтальний 16:10 (напр. 1440×900)."
+        },
+        {
+          "type": "image",
+          "key": "image_tablet",
+          "name": "Знімок на планшеті",
+          "extra": true,
+          "aspect": 0.75,
+          "hint": "Вертикальний 3:4 (напр. 768×1024)."
+        },
+        {
+          "type": "image",
+          "key": "image_mobile",
+          "name": "Знімок на телефоні",
+          "extra": true,
+          "aspect": 0.46208530805687204,
+          "hint": "Вертикальний, як екран телефона (напр. 390×844). Показується в iPhone."
+        }
+      ]
+    },
+    {
       "key": "stats",
       "name": "Цифри",
       "fields": [
@@ -1140,7 +1184,8 @@ insert into public.sites (slug, name, paid_until, config) values (
         "sol_admin_p"
       ],
       "collections": [
-        "features"
+        "features",
+        "screens"
       ],
       "photos": [
         "admin"
@@ -1307,6 +1352,15 @@ from s, (values
   ('features', 'SEO під локальні запити', 'Вас знаходять саме ті, хто шукає вашу послугу поруч із вами.', '', '{"visual":"search"}', 6)
 ) as v(collection, title, text, image_url, extra, n)
 where not exists (select 1 from public.items i, s where i.site_id = s.id and i.collection = 'features');
+
+-- ---------- картки: screens ----------
+with s as (select id from public.sites where slug = 'arawebsite')
+insert into public.items (site_id, collection, title, text, image_url, extra, sort_order)
+select s.id, v.collection, v.title, v.text, v.image_url, v.extra::jsonb, v.n
+from s, (values
+  ('screens', 'Fish Family', '', 'https://arawebsite.com/screens/fishfamily-d.jpg', '{"url_label":"fishfamily","image_tablet":"https://arawebsite.com/screens/fishfamily-t.jpg","image_mobile":"https://arawebsite.com/screens/fishfamily-m.jpg"}', 1)
+) as v(collection, title, text, image_url, extra, n)
+where not exists (select 1 from public.items i, s where i.site_id = s.id and i.collection = 'screens');
 
 -- ---------- картки: stats ----------
 with s as (select id from public.sites where slug = 'arawebsite')
