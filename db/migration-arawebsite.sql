@@ -88,7 +88,7 @@ insert into public.sites (slug, name, paid_until, config) values (
             },
             {
               "value": "map",
-              "label": "Карта з маршрутом"
+              "label": "Карта Google (справжня)"
             },
             {
               "value": "search",
@@ -206,7 +206,7 @@ insert into public.sites (slug, name, paid_until, config) values (
             },
             {
               "value": "map",
-              "label": "Карта з маршрутом"
+              "label": "Карта Google (справжня)"
             },
             {
               "value": "search",
@@ -376,7 +376,7 @@ insert into public.sites (slug, name, paid_until, config) values (
             },
             {
               "value": "map",
-              "label": "Карта з маршрутом"
+              "label": "Карта Google (справжня)"
             },
             {
               "value": "search",
@@ -562,7 +562,7 @@ insert into public.sites (slug, name, paid_until, config) values (
             },
             {
               "value": "map",
-              "label": "Карта з маршрутом"
+              "label": "Карта Google (справжня)"
             },
             {
               "value": "search",
@@ -680,7 +680,7 @@ insert into public.sites (slug, name, paid_until, config) values (
             },
             {
               "value": "map",
-              "label": "Карта з маршрутом"
+              "label": "Карта Google (справжня)"
             },
             {
               "value": "search",
@@ -993,6 +993,11 @@ insert into public.sites (slug, name, paid_until, config) values (
       "multiline": true
     },
     {
+      "key": "form_nocall",
+      "name": "Форма: галочка під номером",
+      "hint": "Видно, коли клієнт обрав «Телефон». Відмітка приходить у заявці поруч зі способом зв''язку. Порожньо — галочки немає."
+    },
+    {
       "key": "form_btn",
       "name": "Форма: кнопка",
       "hint": "Напр.: Надіслати заявку"
@@ -1215,6 +1220,7 @@ insert into public.sites (slug, name, paid_until, config) values (
         "form_h",
         "form_sub",
         "form_business",
+        "form_nocall",
         "form_btn",
         "form_ok",
         "form_note"
@@ -1465,6 +1471,7 @@ Email-розсилка
 Краса / послуги
 Торгівля / магазин
 Інше'),
+  ('form_nocall', 'Не дзвонити — краще написати'),
   ('form_btn', 'Надіслати заявку'),
   ('form_ok', 'Дякую! Заявку отримано — я зв''яжуся з вами найближчим часом.'),
   ('form_note', 'Дані використовую лише для зв''язку з вами'),
